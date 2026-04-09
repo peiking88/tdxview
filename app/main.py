@@ -195,14 +195,24 @@ def initialize_app():
     for directory in [data_dir, cache_dir, log_dir]:
         directory.mkdir(parents=True, exist_ok=True)
     
-    # 初始化数据库（如果不存在）
+    # 初始化数据库（如果表不存在）
     db_path = Path(settings.database.duckdb_path)
-    if not db_path.exists():
-        st.warning("数据库未初始化，正在初始化...")
+    needs_init = True
+    if db_path.exists():
+        try:
+            import duckdb
+            conn = duckdb.connect(str(db_path), read_only=True)
+            tables = [r[0] for r in conn.execute("SELECT table_name FROM information_schema.tables WHERE table_schema = 'main'").fetchall()]
+            conn.close()
+            required = {"users", "data_sources", "indicators", "dashboards"}
+            needs_init = not required.issubset(set(tables))
+        except Exception:
+            needs_init = True
+
+    if needs_init:
         try:
             from scripts.init_database import init_database
             init_database()
-            st.success("数据库初始化完成！")
         except Exception as e:
             st.error(f"数据库初始化失败: {e}")
     
