@@ -1,0 +1,211 @@
+version: '3.8'
+
+services:
+  tdxview:
+    build:
+      context: .
+      target: ${BUILD_TARGET:-development}
+    container_name: tdxview
+    ports:
+      - "${APP_PORT:-8501}:8501"
+    environment:
+      - ENVIRONMENT=${ENVIRONMENT:-development}
+      - APP_SECRET_KEY=${APP_SECRET_KEY:-changemeinproduction}
+      - TDXDATA_API_KEY=${TDXDATA_API_KEY:-}
+      - DATA_DIR=/app/data
+      - LOG_DIR=/app/logs
+      - PLUGIN_DIR=/app/plugins
+      - CONFIG_FILE=/app/config.yaml
+    volumes:
+      - ./data:/app/data  # 数据持久化
+      - ./logs:/app/logs  # 日志持久化
+      - ./plugins:/app/plugins  # 插件目录
+      - ./config.yaml:/app/config.yaml:ro  # 配置文件
+      - ./app:/app/app  # 应用代码热重载（开发环境）
+      - ./scripts:/app/scripts  # 脚本目录
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8501/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    networks:
+      - tdxview-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Redis缓存服务（可选）
+  redis:
+    image: redis:7-alpine
+    container_name: tdxview-redis
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-}
+    volumes:
+      - redis-data:/data
+    restart: unless-stopped
+    networks:
+      - tdxview-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+
+  # PostgreSQL数据库（可选，替代DuckDB）
+  postgres:
+    image: postgres:15-alpine
+    container_name: tdxview-postgres
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-tdxview}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-tdxview123}
+      - POSTGRES_DB=${POSTGRES_DB:-tdxview}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./scripts/init-postgres.sql:/docker-entrypoint-initdb.d/init.sql
+    restart: unless-stopped
+    networks:
+      - tdxview-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-tdxview}"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+
+  # TimescaleDB（时间序列数据库，可选）
+  timescaledb:
+    image: timescale/timescaledb:latest-pg15
+    container_name: tdxview-timescaledb
+    ports:
+      - "${TIMESCALE_PORT:-5433}:5432"
+    environment:
+      - POSTGRES_USER=${TIMESCALE_USER:-tdxview}
+      - POSTGRES_PASSWORD=${TIMESCALE_PASSWORD:-tdxview123}
+      - POSTGRES_DB=${TIMESCALE_DB:-tdxview}
+    volumes:
+      - timescale-data:/var/lib/postgresql/data
+      - ./scripts/init-timescale.sql:/docker-entrypoint-initdb.d/init.sql
+    restart: unless-stopped
+    networks:
+      - tdxview-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${TIMESCALE_USER:-tdxview}"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+
+  # 监控服务（可选）
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: tdxview-prometheus
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    restart: unless-stopped
+    networks:
+      - tdxview-network
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: tdxview-grafana
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+      - GF_INSTALL_PLUGINS=grafana-piechart-panel
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources
+    restart: unless-stopped
+    networks:
+      - tdxview-network
+    depends_on:
+      - prometheus
+
+  # 日志收集（可选）
+  loki:
+    image: grafana/loki:latest
+    container_name: tdxview-loki
+    ports:
+      - "${LOKI_PORT:-3100}:3100"
+    command: -config.file=/etc/loki/local-config.yaml
+    volumes:
+      - loki-data:/loki
+      - ./monitoring/loki-config.yaml:/etc/loki/local-config.yaml
+    restart: unless-stopped
+    networks:
+      - tdxview-network
+
+  promtail:
+    image: grafana/promtail:latest
+    container_name: tdxview-promtail
+    volumes:
+      - ./logs:/var/log/tdxview:ro
+      - ./monitoring/promtail-config.yaml:/etc/promtail/config.yaml
+    command: -config.file=/etc/promtail/config.yaml
+    restart: unless-stopped
+    networks:
+      - tdxview-network
+    depends_on:
+      - loki
+
+networks:
+  tdxview-network:
+    driver: bridge
+    name: tdxview-network
+
+volumes:
+  redis-data:
+    driver: local
+  postgres-data:
+    driver: local
+  timescale-data:
+    driver: local
+  prometheus-data:
+    driver: local
+  grafana-data:
+    driver: local
+  loki-data:
+    driver: local
+
+# 环境变量默认值配置
+x-environment: &default-environment
+  ENVIRONMENT: development
+  APP_PORT: 8501
+  APP_SECRET_KEY: changemeinproduction
+  TDXDATA_API_KEY: ""
+  REDIS_PORT: 6379
+  REDIS_PASSWORD: ""
+  POSTGRES_PORT: 5432
+  POSTGRES_USER: tdxview
+  POSTGRES_PASSWORD: tdxview123
+  POSTGRES_DB: tdxview
+  TIMESCALE_PORT: 5433
+  TIMESCALE_USER: tdxview
+  TIMESCALE_PASSWORD: tdxview123
+  TIMESCALE_DB: tdxview
+  PROMETHEUS_PORT: 9090
+  GRAFANA_PORT: 3000
+  GRAFANA_PASSWORD: admin
+  LOKI_PORT: 3100
+
+# 服务配置继承
+services:
+  tdxview:
+    environment: *default-environment

@@ -1,0 +1,218 @@
+# tdxview 配置文件
+# 环境变量优先级高于此文件中的配置
+
+app:
+  name: "tdxview"
+  version: "1.0.0"
+  debug: false
+  secret_key: "${APP_SECRET_KEY:changemeinproduction}"  # 用于加密的密钥
+  host: "0.0.0.0"
+  port: 8501
+  workers: 1  # Streamlit工作进程数
+
+database:
+  duckdb_path: "${DATA_DIR:/app/data}/tdxview.db"
+  parquet_dir: "${DATA_DIR:/app/data}/parquet"
+  cache_dir: "${DATA_DIR:/app/data}/cache"
+  max_connections: 10
+  connection_timeout: 30
+  wal_mode: true  # 启用WAL模式提高并发性能
+
+tdxdata:
+  api_url: "https://api.tdxdata.com"
+  api_key: "${TDXDATA_API_KEY:}"  # tdxdata API密钥
+  timeout: 30  # 请求超时时间（秒）
+  retry_count: 3  # 重试次数
+  rate_limit: 100  # 每分钟请求限制
+  cache_ttl: 300  # 缓存时间（秒）
+
+cache:
+  memory:
+    enabled: true
+    max_size_mb: 100  # 内存缓存最大大小
+    default_ttl: 300  # 默认缓存时间（秒）
+    
+  disk:
+    enabled: true
+    max_size_gb: 10  # 磁盘缓存最大大小
+    compression: true  # 是否压缩缓存数据
+    
+  query:
+    enabled: true
+    ttl: 3600  # 查询结果缓存时间（秒）
+    max_items: 1000  # 最大缓存项数
+
+indicators:
+  builtin_path: "app/utils/indicators"  # 内置指标路径
+  custom_path: "plugins/indicators"  # 自定义指标路径
+  cache_enabled: true
+  cache_ttl: 600  # 指标计算结果缓存时间（秒）
+  parallel_calculation: true  # 是否并行计算
+  max_workers: 4  # 最大工作线程数
+
+visualization:
+  chart:
+    default_theme: "plotly_white"
+    responsive: true
+    animation_enabled: true
+    
+  export:
+    enabled: true
+    formats: ["png", "svg", "pdf"]
+    max_size_mb: 10
+    
+  performance:
+    max_data_points: 10000  # 单图表最大数据点数
+    sampling_enabled: true  # 是否启用数据采样
+    sampling_threshold: 5000  # 采样阈值
+
+security:
+  authentication:
+    enabled: true
+    session_timeout: 86400  # 会话超时时间（秒）
+    password_min_length: 8
+    password_require_special: true
+    
+  authorization:
+    enabled: true
+    default_role: "user"
+    roles: ["user", "admin"]
+    
+  cors:
+    enabled: true
+    allow_origins: ["*"]  # 生产环境应限制
+    allow_methods: ["GET", "POST", "PUT", "DELETE"]
+    allow_headers: ["*"]
+
+logging:
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR
+  format: "json"  # json, text
+  file:
+    enabled: true
+    path: "${LOG_DIR:/app/logs}/tdxview.log"
+    max_size_mb: 100
+    backup_count: 5
+    compress: true
+    
+  console:
+    enabled: true
+    color: true
+    
+  access_log:
+    enabled: true
+    format: '${time} ${status} ${method} ${path} ${latency}'
+
+monitoring:
+  health_check:
+    enabled: true
+    endpoint: "/health"
+    check_interval: 30
+    
+  metrics:
+    enabled: true
+    endpoint: "/metrics"
+    include_default: true
+    
+  profiling:
+    enabled: false  # 生产环境应禁用
+    endpoint: "/debug/pprof"
+
+storage:
+  data_retention:
+    days: 365  # 数据保留天数
+    archive_enabled: true
+    archive_after_days: 30
+    
+  backup:
+    enabled: true
+    schedule: "0 2 * * *"  # 每天凌晨2点
+    keep_backups: 7  # 保留备份数
+    compression: true
+
+performance:
+  query:
+    timeout: 30  # 查询超时时间（秒）
+    max_concurrent: 10  # 最大并发查询数
+    
+  calculation:
+    batch_size: 1000  # 批量计算大小
+    use_vectorization: true  # 是否使用向量化计算
+    use_jit: true  # 是否使用JIT编译
+    
+  memory:
+    warning_threshold_mb: 512  # 内存警告阈值
+    critical_threshold_mb: 768  # 内存临界阈值
+
+ui:
+  theme:
+    default: "light"  # light, dark, auto
+    primary_color: "#1f77b4"
+    secondary_color: "#ff7f0e"
+    
+  dashboard:
+    max_dashboards_per_user: 10
+    max_widgets_per_dashboard: 20
+    auto_save: true
+    auto_save_interval: 30  # 自动保存间隔（秒）
+    
+  chart:
+    default_time_range: "1M"  # 1D, 1W, 1M, 3M, 6M, 1Y
+    refresh_interval: 60  # 图表刷新间隔（秒）
+    realtime_update: true
+
+plugins:
+  enabled: true
+  scan_interval: 300  # 插件扫描间隔（秒）
+  hot_reload: true  # 是否热重载插件
+  
+  indicators:
+    enabled: true
+    validation: true  # 是否验证插件
+    
+  datasources:
+    enabled: true
+    validation: true
+
+# 开发环境特定配置
+development: &development
+  app:
+    debug: true
+    reload: true
+    
+  logging:
+    level: "DEBUG"
+    console:
+      enabled: true
+      color: true
+      
+  database:
+    wal_mode: false  # 开发环境可禁用WAL
+    
+  monitoring:
+    profiling:
+      enabled: true
+
+# 生产环境特定配置
+production: &production
+  app:
+    debug: false
+    reload: false
+    
+  logging:
+    level: "INFO"
+    file:
+      enabled: true
+      
+  security:
+    cors:
+      allow_origins: ["https://tdxview.example.com"]  # 生产环境域名
+      
+  monitoring:
+    profiling:
+      enabled: false
+
+# 环境配置映射
+environments:
+  development: *development
+  production: *production
+  testing: *development  # 测试环境使用开发配置
