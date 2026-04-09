@@ -83,7 +83,7 @@ class LoggingConfig(BaseModel):
     format: str = Field(default="json")
     
     file_enabled: bool = Field(default=True)
-    file_path: str = Field(default="logs/tdxview.log")
+    file_path: str = Field(default="log/tdxview.log")
     file_max_size_mb: int = Field(default=100)
     file_backup_count: int = Field(default=5)
     file_compress: bool = Field(default=True)

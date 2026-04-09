@@ -1,22 +1,149 @@
-# tdxview Project
+# tdxview
 
-## Project Rules
+A stock market data visualization platform built on [tdxdata](./external/tdxdata/). It provides real-time monitoring, historical data analysis, technical indicator calculation, and interactive charting through a Streamlit web interface.
 
-This project follows specific development rules configured in `.trae/rules/project_rules.md`.
+## Tech Stack
 
-### Key Rules:
-1. **Git Configuration**: Uses custom GitHub domain and credentials
-2. **Language**: Chinese for work process, English for documentation
-3. **Build**: Parallel compilation with `-j$(nproc)`
-4. **Third-party Code**: No modifications to `3rdparty` and `external` directories
-5. **Logging**: All logs saved to `log` directory
-6. **Debugging**: No simplification or bypassing of problems
-7. **Testing**: All unit tests must pass before new tasks
+| Component | Technology |
+|-----------|------------|
+| Language | Python 3.13 |
+| Web UI | Streamlit |
+| Database | DuckDB |
+| Time-series Storage | Parquet |
+| Charting | Plotly |
+| Validation | Pydantic / pydantic-settings |
+| Logging | Loguru |
+| Auth | bcrypt + JWT (python-jose) |
+| Data Source | tdxdata (通达信数据接口) |
 
-## Setup
+## Architecture
 
-To be configured based on project requirements.
+```
+┌─────────────────────────────────────────────────┐
+│                  Streamlit UI                    │
+│  auth · charts · dashboard · indicators · config │
+├─────────────────────────────────────────────────┤
+│                   Services                       │
+│  data · visualization · indicator · user         │
+│  backup · retention · plugin                     │
+├─────────────────────────────────────────────────┤
+│                    Data                          │
+│  DuckDB · Parquet · Cache (LRU + Disk)           │
+│  tdxdata source (remote / local / hybrid)        │
+└─────────────────────────────────────────────────┘
+```
 
-## Development
+## Features
 
-Follow the project rules for all development activities.
+- **Authentication**: User registration, login, JWT sessions, role-based access control
+- **Historical Charts**: K-line (candlestick), line, bar, heatmap with MA overlays
+- **Real-time Monitoring**: Live quotes dashboard with configurable watchlists
+- **Technical Indicators**: SMA, EMA, MACD, RSI, RPS, Bollinger Bands, OBV, VWAP + custom plugin indicators
+- **Data Management**: Fetch, store to Parquet, browse local data files
+- **System Configuration**: Data source management, cache settings, user preferences
+- **Data Retention**: Archive/purge old Parquet files, cleanup expired cache and logs
+- **Backup & Restore**: Timestamped tar.gz backups with integrity verification
+- **Plugin Hot-Reload**: Dynamic indicator script loading with file-hash change detection
+- **Performance**: Parallel multi-symbol fetching, data downsampling, in-place chart updates
+
+## Quick Start
+
+### Prerequisites
+
+- Python 3.10+
+-通达信行情服务器 connectivity (or local TDX data files)
+
+### Install
+
+```bash
+pip install -r requirements.txt
+```
+
+### Initialize Database
+
+```bash
+python3 scripts/init_database.py
+```
+
+Default admin account: `admin` / `admin123` (change after first login)
+
+### Run
+
+```bash
+streamlit run app/main.py
+```
+
+Open http://localhost:8501 in your browser.
+
+### Docker
+
+```bash
+docker build -t tdxview .
+docker run -p 8501:8501 tdxview
+```
+
+## Project Structure
+
+```
+app/
+├── components/          # Streamlit UI pages
+│   ├── auth.py          # Login/register
+│   ├── charts.py        # Chart visualization
+│   ├── dashboard.py     # Monitoring dashboard
+│   ├── data_management.py
+│   ├── indicators.py
+│   └── config.py
+├── config/
+│   └── settings.py      # Pydantic settings (config.yaml)
+├── data/
+│   ├── cache.py         # MemoryCache (LRU+TTL) + DiskCache + CacheManager
+│   ├── database.py      # DuckDB manager
+│   ├── parquet_manager.py
+│   ├── models/          # Pydantic data models
+│   └── sources/
+│       ├── base_source.py
+│       └── tdxdata_source.py
+├── services/
+│   ├── data_service.py         # Data orchestration + parallel queries
+│   ├── visualization_service.py # Chart creation + advanced features
+│   ├── indicator_service.py    # Indicator calculation engine
+│   ├── user_service.py         # Auth, JWT, user CRUD
+│   ├── backup_service.py       # Backup automation & restore
+│   ├── retention_service.py    # Data retention & archival
+│   └── plugin_service.py       # Plugin hot-reload
+├── utils/
+│   ├── indicators/      # Built-in indicator implementations
+│   │   ├── trend.py     # SMA, EMA, MACD
+│   │   ├── momentum.py  # RSI, RPS
+│   │   ├── volatility.py # Bollinger Bands
+│   │   ├── volume.py    # OBV, VWAP
+│   │   └── custom.py    # Custom indicator loader
+│   └── logging.py       # Loguru setup
+└── main.py              # Streamlit app entry
+
+config.yaml              # Application configuration
+plugins/indicators/      # Custom indicator scripts
+scripts/init_database.py # Database initialization
+tests/                   # Test suite (256 passed, 3 skipped)
+external/tdxdata/        # Third-party data library (read-only)
+```
+
+## Testing
+
+```bash
+pytest tests/ -v
+```
+
+## Configuration
+
+Edit `config.yaml` to customize:
+
+- Database paths (DuckDB, Parquet, cache directories)
+- Cache settings (memory size, TTL)
+- TDX data source (timeout, retry)
+- Security settings (secret key, session timeout, password policy)
+- Logging level and file path
+
+## License
+
+MIT

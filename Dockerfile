@@ -37,10 +37,10 @@ RUN useradd -m -u 1000 -s /bin/bash appuser && \
 USER appuser
 
 # 创建必要的目录
-RUN mkdir -p /app/data /app/logs /app/plugins
+RUN mkdir -p /app/data /app/log /app/plugins
 
 # 设置数据目录权限
-RUN chmod 755 /app/data /app/logs /app/plugins
+RUN chmod 755 /app/data /app/log /app/plugins
 
 # 暴露端口
 EXPOSE 8501
@@ -83,13 +83,13 @@ RUN useradd -m -u 1000 -s /bin/bash appuser && \
 USER appuser
 
 # 创建必要的目录
-RUN mkdir -p /app/data /app/logs /app/plugins
+RUN mkdir -p /app/data /app/log /app/plugins
 
 # 设置环境变量
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     DATA_DIR=/app/data \
-    LOG_DIR=/app/logs \
+    LOG_DIR=/app/log \
     PLUGIN_DIR=/app/plugins \
     CONFIG_FILE=/app/config.yaml \
     ENVIRONMENT=production

@@ -18,6 +18,7 @@ from app.components.dashboard import dashboard_component
 from app.components.charts import chart_component
 from app.components.indicators import indicator_component
 from app.components.config import config_component
+from app.components.data_management import data_management_component
 
 # 页面配置
 st.set_page_config(
@@ -61,8 +62,15 @@ def main():
     
     # 侧边栏导航
     with st.sidebar:
-        st.image("https://via.placeholder.com/150x50/1f77b4/ffffff?text=tdxview", 
-                caption="数据驱动决策")
+        st.markdown(
+            '<div style="text-align:center;padding:10px 0;">'
+            '<svg width="150" height="50" viewBox="0 0 150 50" xmlns="http://www.w3.org/2000/svg">'
+            '<rect width="150" height="50" rx="8" fill="#1f77b4"/>'
+            '<text x="75" y="32" text-anchor="middle" fill="white" font-size="20" font-family="sans-serif" font-weight="bold">tdxview</text>'
+            '</svg></div>',
+            unsafe_allow_html=True,
+        )
+        st.caption("数据驱动决策")
         
         # 用户认证状态
         if st.session_state.authenticated:
@@ -115,7 +123,7 @@ def main():
         elif st.session_state.current_page == "indicators":
             indicator_component()
         elif st.session_state.current_page == "data_management":
-            st.info("数据管理功能开发中...")
+            data_management_component()
         elif st.session_state.current_page == "config":
             config_component()
         else:
@@ -182,7 +190,7 @@ def initialize_app():
     # 检查必要目录
     data_dir = Path(settings.database.parquet_dir)
     cache_dir = Path(settings.database.cache_dir)
-    log_dir = Path(settings.logging.file.path).parent
+    log_dir = Path(settings.logging.file_path).parent
     
     for directory in [data_dir, cache_dir, log_dir]:
         directory.mkdir(parents=True, exist_ok=True)

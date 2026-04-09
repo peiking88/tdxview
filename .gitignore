@@ -1,7 +1,6 @@
-# Log files
-log/
-*.log
-logs/
+# Log files — keep log/ directory but ignore log content
+log/*.log
+log/*.gz
 
 # Build directories
 build/
@@ -15,12 +14,14 @@ node_modules/
 vendor/
 *.pyc
 __pycache__/
+*.egg-info/
 
 # IDE files
 .vscode/
 .idea/
 *.swp
 *.swo
+.trae/
 
 # OS files
 .DS_Store
@@ -49,7 +50,13 @@ temp/
 # Coverage reports
 coverage/
 *.lcov
+htmlcov/
+.pytest_cache/
 
-# Project specific
-.trae/credentials
-.git/credentials
+# Project data (generated at runtime)
+data/tdxview.db
+data/parquet/
+data/cache/
+
+# Type checking
+.mypy_cache/

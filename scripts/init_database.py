@@ -35,9 +35,10 @@ def init_database():
     
     # 创建用户表
     print("创建用户表...")
+    conn.execute("CREATE SEQUENCE IF NOT EXISTS users_id_seq START 1")
     conn.execute("""
     CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY,
+        id INTEGER PRIMARY KEY DEFAULT nextval('users_id_seq'),
         username TEXT UNIQUE NOT NULL,
         email TEXT UNIQUE,
         password_hash TEXT NOT NULL,
@@ -51,9 +52,10 @@ def init_database():
     
     # 创建数据源配置表
     print("创建数据源配置表...")
+    conn.execute("CREATE SEQUENCE IF NOT EXISTS data_sources_id_seq START 1")
     conn.execute("""
     CREATE TABLE IF NOT EXISTS data_sources (
-        id INTEGER PRIMARY KEY,
+        id INTEGER PRIMARY KEY DEFAULT nextval('data_sources_id_seq'),
         name TEXT NOT NULL,
         type TEXT NOT NULL,  -- 'tdxdata', 'csv', 'api', 'file'
         config JSON NOT NULL,
@@ -68,9 +70,10 @@ def init_database():
     
     # 创建指标定义表
     print("创建指标定义表...")
+    conn.execute("CREATE SEQUENCE IF NOT EXISTS indicators_id_seq START 1")
     conn.execute("""
     CREATE TABLE IF NOT EXISTS indicators (
-        id INTEGER PRIMARY KEY,
+        id INTEGER PRIMARY KEY DEFAULT nextval('indicators_id_seq'),
         name TEXT NOT NULL,
         display_name TEXT NOT NULL,
         category TEXT NOT NULL,  -- 'trend', 'momentum', 'volatility', 'volume', 'custom'
@@ -88,9 +91,10 @@ def init_database():
     
     # 创建仪表板配置表
     print("创建仪表板配置表...")
+    conn.execute("CREATE SEQUENCE IF NOT EXISTS dashboards_id_seq START 1")
     conn.execute("""
     CREATE TABLE IF NOT EXISTS dashboards (
-        id INTEGER PRIMARY KEY,
+        id INTEGER PRIMARY KEY DEFAULT nextval('dashboards_id_seq'),
         user_id INTEGER REFERENCES users(id),
         name TEXT NOT NULL,
         description TEXT,
@@ -106,9 +110,10 @@ def init_database():
     
     # 创建图表配置表
     print("创建图表配置表...")
+    conn.execute("CREATE SEQUENCE IF NOT EXISTS charts_id_seq START 1")
     conn.execute("""
     CREATE TABLE IF NOT EXISTS charts (
-        id INTEGER PRIMARY KEY,
+        id INTEGER PRIMARY KEY DEFAULT nextval('charts_id_seq'),
         dashboard_id INTEGER REFERENCES dashboards(id),
         name TEXT NOT NULL,
         chart_type TEXT NOT NULL,  -- 'candlestick', 'line', 'bar', 'heatmap', 'scatter'
@@ -174,9 +179,10 @@ def init_database():
     
     # 创建系统日志表
     print("创建系统日志表...")
+    conn.execute("CREATE SEQUENCE IF NOT EXISTS system_logs_id_seq START 1")
     conn.execute("""
     CREATE TABLE IF NOT EXISTS system_logs (
-        id INTEGER PRIMARY KEY,
+        id INTEGER PRIMARY KEY DEFAULT nextval('system_logs_id_seq'),
         level TEXT NOT NULL,  -- 'INFO', 'WARNING', 'ERROR', 'DEBUG'
         module TEXT NOT NULL,
         message TEXT NOT NULL,
@@ -190,9 +196,10 @@ def init_database():
     
     # 创建审计日志表
     print("创建审计日志表...")
+    conn.execute("CREATE SEQUENCE IF NOT EXISTS audit_logs_id_seq START 1")
     conn.execute("""
     CREATE TABLE IF NOT EXISTS audit_logs (
-        id INTEGER PRIMARY KEY,
+        id INTEGER PRIMARY KEY DEFAULT nextval('audit_logs_id_seq'),
         user_id INTEGER,
         action TEXT NOT NULL,  -- 'login', 'logout', 'query', 'update', 'delete'
         resource_type TEXT NOT NULL,  -- 'dashboard', 'chart', 'indicator', 'data'
@@ -258,11 +265,13 @@ def init_database():
     print("插入默认数据...")
     
     # 插入默认管理员用户（密码：admin123）
+    # 使用 bcrypt 生成哈希，与 user_service.verify_password 兼容
+    from app.services.user_service import hash_password
+    admin_pw_hash = hash_password("admin123")
     conn.execute("""
     INSERT OR IGNORE INTO users (username, email, password_hash, role)
-    VALUES ('admin', 'admin@tdxview.com', 
-            '$2b$12$EixZaYVK1fsbw1ZfbX3OXePaWxn96p36WQoeG6Lruj3vjPGga31lW', 'admin')
-    """)
+    VALUES ('admin', 'admin@tdxview.com', ?, 'admin')
+    """, [admin_pw_hash])
     
     # 插入默认数据源配置
     default_source = {

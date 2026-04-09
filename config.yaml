@@ -11,9 +11,9 @@ app:
   workers: 1  # Streamlit工作进程数
 
 database:
-  duckdb_path: "${DATA_DIR:/app/data}/tdxview.db"
-  parquet_dir: "${DATA_DIR:/app/data}/parquet"
-  cache_dir: "${DATA_DIR:/app/data}/cache"
+  duckdb_path: "data/tdxview.db"
+  parquet_dir: "data/parquet"
+  cache_dir: "data/cache"
   max_connections: 10
   connection_timeout: 30
   wal_mode: true  # 启用WAL模式提高并发性能
@@ -89,7 +89,7 @@ logging:
   format: "json"  # json, text
   file:
     enabled: true
-    path: "${LOG_DIR:/app/logs}/tdxview.log"
+    path: "log/tdxview.log"
     max_size_mb: 100
     backup_count: 5
     compress: true
