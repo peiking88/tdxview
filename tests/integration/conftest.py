@@ -1,8 +1,17 @@
 """
 集成测试共享fixture
+
+原则：真实环境优先于 mock
+- DuckDB / Parquet / Cache 使用真实临时实例
+- 通达信服务器可用时使用真实连接，不可用时自动降级为 mock
+- get_settings 已由 tests/conftest.py autouse patch 统一管理
+- 使用方式：
+    pytest                     # 自动检测服务器
+    TDX_LIVE=0 pytest          # 强制 mock
+    TDX_LIVE=1 pytest          # 强制真实连接
 """
 
-import os
+import json
 import sys
 import tempfile
 from pathlib import Path
@@ -16,10 +25,6 @@ PROJECT_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 
-# ---------------------------------------------------------------------------
-# Temporary directories
-# ---------------------------------------------------------------------------
-
 @pytest.fixture(scope="session")
 def tmp_base():
     with tempfile.TemporaryDirectory() as d:
@@ -27,104 +32,40 @@ def tmp_base():
 
 
 @pytest.fixture(scope="session")
-def tmp_db_path(tmp_base):
-    return str(tmp_base / "test_tdxview.db")
+def tmp_db_path(tmp_base, test_settings):
+    db_path = str(tmp_base / "test_tdxview.db")
+    original = test_settings.database.duckdb_path
+    test_settings.database.duckdb_path = db_path
+    yield db_path
+    test_settings.database.duckdb_path = original
 
 
 @pytest.fixture(scope="session")
-def tmp_parquet_dir(tmp_base):
+def tmp_parquet_dir(tmp_base, test_settings):
     p = tmp_base / "parquet"
     p.mkdir(exist_ok=True)
-    return str(p)
+    original = test_settings.database.parquet_dir
+    test_settings.database.parquet_dir = str(p)
+    yield str(p)
+    test_settings.database.parquet_dir = original
 
 
 @pytest.fixture(scope="session")
-def tmp_cache_dir(tmp_base):
+def tmp_cache_dir(tmp_base, test_settings):
     p = tmp_base / "cache"
     p.mkdir(exist_ok=True)
-    return str(p)
+    original = test_settings.database.cache_dir
+    test_settings.database.cache_dir = str(p)
+    yield str(p)
+    test_settings.database.cache_dir = original
 
-
-# ---------------------------------------------------------------------------
-# Patched settings so every service uses temp paths
-# ---------------------------------------------------------------------------
 
 @pytest.fixture(scope="session", autouse=True)
-def _patched_settings(tmp_db_path, tmp_parquet_dir, tmp_cache_dir):
-    """Override get_settings for the whole integration session by directly patching."""
-    import sys
-    import importlib
-    
-    # 直接修改设置对象
-    from app.config.settings import get_settings
-    settings = get_settings()
-    
-    # 直接修改设置对象的属性
-    settings.database.duckdb_path = tmp_db_path
-    settings.database.parquet_dir = tmp_parquet_dir
-    settings.database.cache_dir = tmp_cache_dir
-    settings.security.password_min_length = 4
-    settings.security.password_require_special = False
-    
-    # 强制重新导入可能已经缓存了设置的模块
-    modules_to_reload = [
-        'app.data.database',
-        'app.services.data_service',
-        'app.services.user_service',
-        'app.services.indicator_service'
-    ]
-    
-    for module_name in modules_to_reload:
-        if module_name in sys.modules:
-            importlib.reload(sys.modules[module_name])
-    
-    return settings
-
-
-@pytest.fixture(scope="function", autouse=True)
-def _mock_bcrypt():
-    """Mock bcrypt functions for faster and more predictable tests."""
-    import unittest.mock as mock
-    import bcrypt
-    import base64
-    
-    # 存储密码哈希映射
-    password_hash_map = {}
-    
-    def simple_hash(password_bytes, salt):
-        # 创建一个简单的"哈希"：密码的base64编码
-        # 存储映射
-        password_str = password_bytes.decode('utf-8')
-        fake_hash = base64.b64encode(f"mock_hash_{password_str}".encode()).decode()
-        password_hash_map[password_str] = fake_hash.encode()
-        return fake_hash.encode()
-    
-    def simple_checkpw(password_bytes, hashed_bytes):
-        # 检查密码是否匹配存储的哈希
-        password_str = password_bytes.decode('utf-8')
-        fake_hash = base64.b64encode(f"mock_hash_{password_str}".encode()).decode()
-        return hashed_bytes == fake_hash.encode()
-    
-    # Mock bcrypt函数
-    with mock.patch.object(bcrypt, 'hashpw', side_effect=simple_hash):
-        with mock.patch.object(bcrypt, 'checkpw', side_effect=simple_checkpw):
-            # 也需要mock gensalt
-            with mock.patch.object(bcrypt, 'gensalt', return_value=b"$2b$12$mocksaltmocksaltmocksa"):
-                yield
-
-
-# ---------------------------------------------------------------------------
-# Database init — create users table once
-# ---------------------------------------------------------------------------
-
-@pytest.fixture(scope="session", autouse=True)
-def _init_db(_patched_settings, tmp_db_path):
+def _init_db(tmp_db_path):
     from app.data.database import DatabaseManager
-    import json
 
     db = DatabaseManager(db_path=tmp_db_path)
-    
-    # 创建用户表
+
     db.execute("CREATE SEQUENCE IF NOT EXISTS users_id_seq START 1")
     db.execute("""
         CREATE TABLE IF NOT EXISTS users (
@@ -139,8 +80,7 @@ def _init_db(_patched_settings, tmp_db_path):
             preferences TEXT DEFAULT '{}'
         )
     """)
-    
-    # 创建数据源表
+
     db.execute("CREATE SEQUENCE IF NOT EXISTS data_sources_id_seq START 1")
     db.execute("""
         CREATE TABLE IF NOT EXISTS data_sources (
@@ -154,8 +94,7 @@ def _init_db(_patched_settings, tmp_db_path):
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
-    
-    # 插入一个测试数据源
+
     default_config = json.dumps({
         "api_url": "https://api.tdxdata.com",
         "api_key": "test_key",
@@ -166,55 +105,40 @@ def _init_db(_patched_settings, tmp_db_path):
         INSERT OR IGNORE INTO data_sources (name, type, config, enabled, priority)
         VALUES ('tdxdata_test', 'tdxdata', ?, TRUE, 1)
     """, [default_config])
-    
+
     db.connection.commit()
     yield db
 
 
-# ---------------------------------------------------------------------------
-# Mock TdxDataSource
-# ---------------------------------------------------------------------------
+@pytest.fixture(scope="session")
+def mock_source(tdx_source):
+    """数据源 fixture —— 可能是真实 TdxDataSource 也可能是 mock。
+
+    名称保留 mock_source 是为了向后兼容已有测试的参数名。
+    实际行为取决于 tdx_available 检测结果。
+    """
+    return tdx_source
+
 
 @pytest.fixture(scope="session")
-def mock_source():
-    src = MagicMock()
+def data_service(tdx_source, tdx_available):
+    """创建 DataService 实例。
 
-    src.fetch_history.return_value = pd.DataFrame({
-        "date": pd.date_range("2024-01-01", periods=31, freq="D"),
-        "open": np.random.uniform(100, 200, 31),
-        "high": np.random.uniform(110, 220, 31),
-        "low":  np.random.uniform(90, 180, 31),
-        "close": np.random.uniform(105, 210, 31),
-        "volume": np.random.randint(100_000, 1_000_000, 31),
-        "symbol": ["AAPL"] * 31,
-    })
+    - 服务器可用时：不 patch TdxDataSource，使用真实连接
+    - 服务器不可用时：patch TdxDataSource 返回 mock
+    """
+    from app.services.data_service import DataService
 
-    src.fetch_realtime.return_value = pd.DataFrame({
-        "symbol":  ["AAPL", "GOOGL"],
-        "price":   [150.25, 2750.50],
-        "change":  [1.25, -5.75],
-        "change_percent": [0.84, -0.21],
-        "volume":  [1_500_000, 750_000],
-    })
-
-    return src
-
-
-# ---------------------------------------------------------------------------
-# DataService with mocked source
-# ---------------------------------------------------------------------------
-
-@pytest.fixture(scope="session")
-def data_service(_patched_settings, mock_source):
-    with patch("app.services.data_service.TdxDataSource", return_value=mock_source):
-        from app.services.data_service import DataService
+    if tdx_available:
         svc = DataService()
+        svc._source = tdx_source
+        yield svc
+    else:
+        with patch("app.services.data_service.TdxDataSource", return_value=tdx_source):
+            svc = DataService()
+        svc._source = tdx_source
         yield svc
 
-
-# ---------------------------------------------------------------------------
-# user_service module (functions, not a class)
-# ---------------------------------------------------------------------------
 
 @pytest.fixture(scope="session")
 def us():
@@ -222,19 +146,11 @@ def us():
     return user_service
 
 
-# ---------------------------------------------------------------------------
-# IndicatorService
-# ---------------------------------------------------------------------------
-
 @pytest.fixture(scope="session")
-def indicator_service(_patched_settings):
+def indicator_service():
     from app.services.indicator_service import IndicatorService
     return IndicatorService()
 
-
-# ---------------------------------------------------------------------------
-# Sample data helpers
-# ---------------------------------------------------------------------------
 
 @pytest.fixture(scope="session")
 def sample_stock_df():
@@ -253,7 +169,6 @@ def sample_stock_df():
 
 @pytest.fixture()
 def clean_db(tmp_db_path):
-    """Truncate all user tables before each test."""
     from app.data.database import DatabaseManager
     db = DatabaseManager(db_path=tmp_db_path)
     for t in ("users",):

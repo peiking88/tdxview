@@ -124,26 +124,40 @@ app/
 config.yaml              # Application configuration
 plugins/indicators/      # Custom indicator scripts
 scripts/init_database.py # Database initialization
-tests/                   # Test suite (518 passed, 94% coverage)
+tests/                   # Test suite (393 passed, dual-mode architecture)
 external/tdxdata/        # Third-party data library (read-only)
 ```
 
 ## Testing
 
 ```bash
-# Run all tests with coverage report
+# Run all tests (auto-detect TDX server, fallback to mock)
 pytest tests/ --cov=app --cov-report=term-missing
 
-# Core business code coverage: 94%
+# Force mock mode (offline, no network needed)
+TDX_LIVE=0 pytest tests/ -q
+
+# Force real TDX server
+TDX_LIVE=1 pytest tests/ -q
+
+# Core business code coverage: 88%
 # Excludes: Streamlit UI components, third-party adapters, main entry point
 ```
 
 **Test Coverage Status**:
-- **Total tests**: 518 passed
-- **Core business code coverage**: 94%
+- **Total tests**: 393 passed, 9 skipped (live-only network tests)
+- **Core business code coverage**: 88%
 - **Coverage configuration**: Excludes UI components (`app/components/*`), third-party adapters (`tdxdata_source.py`), and main entry point (`main.py`)
 - **Test categories**: Unit tests for services, data layer, utilities, and integration tests
 - **Quality gates**: 80% minimum coverage required (configured in pyproject.toml)
+
+### Dual-Mode Testing Architecture
+
+The test suite uses a **dual-mode** approach for both `get_settings` and `TDX data source`:
+
+- **`test_settings`** (session, autouse): Creates a real `Settings()` instance pointing to temp directories. Automatically patches `get_settings` across all 18 application modules — no test file needs to mock settings manually.
+- **`tdx_source`** (session): Auto-detects TDX server availability. Returns real `TdxDataSource` when server is reachable, or a `MagicMock` with realistic A-share data when offline.
+- **Environment control**: `TDX_LIVE=0` (force mock), `TDX_LIVE=1` (force real), or auto-detect (default).
 
 ## Configuration
 

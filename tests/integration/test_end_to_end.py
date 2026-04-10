@@ -11,9 +11,9 @@ import pytest
 class TestUserOnboardingWorkflow:
 
     def test_register_login_set_preferences(self, us, clean_db):
-        ok, _ = us.register_user("trader1", "pass", "trader1@example.com")
+        ok, _ = us.register_user("trader1", "Pass!1234", "trader1@example.com")
         assert ok is True
-        user = us.authenticate_user("trader1", "pass")
+        user = us.authenticate_user("trader1", "Pass!1234")
         assert user is not None
         user_id = user["id"]
 
@@ -29,9 +29,9 @@ class TestUserOnboardingWorkflow:
         assert prefs["chart_type"] == "candlestick"
 
     def test_register_update_role_deactivate(self, us, clean_db):
-        ok, _ = us.register_user("admin1", "pass", "admin1@example.com")
+        ok, _ = us.register_user("admin1", "Pass!1234", "admin1@example.com")
         assert ok is True
-        user = us.authenticate_user("admin1", "pass")
+        user = us.authenticate_user("admin1", "Pass!1234")
         assert user is not None
 
         us.update_user_role(user["id"], "admin")
@@ -39,19 +39,19 @@ class TestUserOnboardingWorkflow:
         assert updated["role"] == "admin"
 
         us.deactivate_user(user["id"])
-        assert us.authenticate_user("admin1", "pass") is None
+        assert us.authenticate_user("admin1", "Pass!1234") is None
 
 
 class TestDataFetchAndAnalyseWorkflow:
 
     def test_fetch_store_load_analyse(
-        self, data_service, indicator_service, mock_source, sample_stock_df
+        self, data_service, indicator_service, mock_source, sample_stock_df, tdx_available
     ):
-        df = data_service.get_history(["AAPL"], "2024-01-01", "2024-01-31")
+        df = data_service.get_history(["000001"], "2024-01-01", "2024-01-31")
         assert not df.empty
 
-        data_service.save_to_parquet(df, "AAPL", "2024-01")
-        loaded = data_service.load_from_parquet("AAPL", "2024-01")
+        data_service.save_to_parquet(df, "000001", "2024-01")
+        loaded = data_service.load_from_parquet("000001", "2024-01")
         assert loaded is not None
         assert len(loaded) > 0
 
@@ -63,10 +63,10 @@ class TestDataFetchAndAnalyseWorkflow:
         assert "rsi" in rsi_result
 
     def test_parallel_fetch_store_analyse(
-        self, data_service, indicator_service, mock_source
+        self, data_service, indicator_service, mock_source, tdx_available
     ):
         results = data_service.parallel_get_history(
-            ["AAPL", "GOOGL"], "2024-01-01", "2024-01-31"
+            ["000001", "600000"], "2024-01-01", "2024-01-31"
         )
         assert len(results) == 2
 
@@ -85,9 +85,9 @@ class TestDataFetchAndAnalyseWorkflow:
             assert "ema" in multi
             assert "rsi" in multi
 
-    def test_fetch_and_store_workflow(self, data_service, mock_source):
+    def test_fetch_and_store_workflow(self, data_service, mock_source, tdx_available):
         result = data_service.fetch_and_store(
-            ["AAPL"], "2024-01-01", "2024-01-31"
+            ["000001"], "2024-01-01", "2024-01-31"
         )
         assert isinstance(result, dict)
         assert len(result) > 0
@@ -99,18 +99,17 @@ class TestDataFetchAndAnalyseWorkflow:
 
 class TestRealtimeDataWorkflow:
 
-    def test_realtime_quotes(self, data_service, mock_source):
-        df = data_service.get_realtime(["AAPL", "GOOGL"])
+    def test_realtime_quotes(self, data_service, mock_source, tdx_available):
+        df = data_service.get_realtime(["000001", "600000"])
         assert not df.empty
         assert "symbol" in df.columns
         assert len(df) == 2
 
-    def test_realtime_cache_short_ttl(self, data_service, mock_source):
-        mock_source.fetch_realtime.reset_mock()
-        data_service.get_realtime(["AAPL"])
-        data_service.get_realtime(["AAPL"])
-        # 验证数据源被调用
-        # mock_source.fetch_realtime.assert_called()  # 跳过mock检查
+    def test_realtime_cache_short_ttl(self, data_service, mock_source, tdx_available):
+        if not tdx_available:
+            mock_source.fetch_realtime.reset_mock()
+        data_service.get_realtime(["000001"])
+        data_service.get_realtime(["000001"])
 
 
 class TestFullIndicatorAnalysis:
@@ -167,20 +166,20 @@ class TestFullIndicatorAnalysis:
 class TestUserWithDataWorkflow:
 
     def test_user_registers_fetches_analyses(
-        self, us, data_service, indicator_service, mock_source, clean_db
+        self, us, data_service, indicator_service, mock_source, clean_db, tdx_available
     ):
-        ok, _ = us.register_user("analyst1", "pass", "analyst1@example.com")
+        ok, _ = us.register_user("analyst1", "Pass!1234", "analyst1@example.com")
         assert ok is True
-        user = us.authenticate_user("analyst1", "pass")
+        user = us.authenticate_user("analyst1", "Pass!1234")
         assert user is not None
         user_id = user["id"]
 
         us.set_user_preferences(user_id, {
-            "default_symbols": ["AAPL"],
+            "default_symbols": ["000001"],
             "default_indicators": ["sma", "rsi"],
         })
 
-        df = data_service.get_history(["AAPL"], "2024-01-01", "2024-01-31")
+        df = data_service.get_history(["000001"], "2024-01-01", "2024-01-31")
         assert not df.empty
 
         indicators = us.get_user_preferences(user_id).get("default_indicators", [])
@@ -188,18 +187,18 @@ class TestUserWithDataWorkflow:
             result = indicator_service.calculate(ind_name, df)
             assert result is not None
 
-        data_service.save_to_parquet(df, "AAPL", "2024-01")
-        loaded = data_service.load_from_parquet("AAPL", "2024-01")
+        data_service.save_to_parquet(df, "000001", "2024-01")
+        loaded = data_service.load_from_parquet("000001", "2024-01")
         assert loaded is not None
 
     def test_multiple_users_isolated_preferences(self, us, clean_db):
-        ok1, _ = us.register_user("userA", "pass")
+        ok1, _ = us.register_user("userA", "Pass!1234")
         assert ok1 is True
-        ua = us.authenticate_user("userA", "pass")
-        
-        ok2, _ = us.register_user("userB", "pass2")
+        ua = us.authenticate_user("userA", "Pass!1234")
+
+        ok2, _ = us.register_user("userB", "Pass!5678")
         assert ok2 is True
-        ub = us.authenticate_user("userB", "pass2")
+        ub = us.authenticate_user("userB", "Pass!5678")
 
         us.set_user_preferences(ua["id"], {"theme": "dark", "symbol": "AAPL"})
         us.set_user_preferences(ub["id"], {"theme": "light", "symbol": "GOOGL"})

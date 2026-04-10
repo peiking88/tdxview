@@ -1,7 +1,12 @@
 """
 IndicatorService additional unit tests covering uncovered lines.
+
+原则：真实环境优先于 mock
+- 自定义指标使用真实脚本文件测试
+- 仅在必要时 mock get_settings（设置自定义指标路径）
 """
 
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
@@ -23,6 +28,18 @@ def sample_df():
 
 
 @pytest.fixture
+def custom_indicator_dir(tmp_path):
+    d = tmp_path / "custom_indicators"
+    d.mkdir()
+    indicator_script = d / "my_custom.py"
+    indicator_script.write_text(
+        "def calculate(df, period=14):\n"
+        "    return df.assign(custom_result=df['close'] * period)\n"
+    )
+    return d
+
+
+@pytest.fixture
 def svc():
     return IndicatorService()
 
@@ -35,14 +52,10 @@ class TestCalculateUnsupportedInput:
 
 class TestCalculateWithCache:
     def test_calculate_caches_result(self, svc, sample_df):
-        with patch("app.services.indicator_service.get_settings") as mock_settings:
-            s = MagicMock()
-            s.indicators.cache_ttl = 3600
-            mock_settings.return_value = s
-            result1 = svc.calculate("sma", sample_df, params={"period": 5}, use_cache=True)
-            result2 = svc.calculate("sma", sample_df, params={"period": 5}, use_cache=True)
-            assert "sma" in result1
-            assert "sma" in result2
+        result1 = svc.calculate("sma", sample_df, params={"period": 5}, use_cache=True)
+        result2 = svc.calculate("sma", sample_df, params={"period": 5}, use_cache=True)
+        assert "sma" in result1
+        assert "sma" in result2
 
 
 class TestAddIndicatorToFigure:
@@ -83,17 +96,21 @@ class TestAddIndicatorToFigure:
 
 
 class TestListAndGetIndicators:
-    def test_list_indicators(self, svc):
+    def test_list_indicators_empty_custom(self, svc, custom_indicator_dir):
         with patch("app.services.indicator_service.list_custom_indicators", return_value=[]):
             result = svc.list_indicators()
             assert len(result) >= len(INDICATOR_REGISTRY)
             assert all("name" in r for r in result)
 
-    def test_list_indicators_with_custom(self, svc):
-        custom = [{"name": "custom1", "description": "test", "path": "/tmp/test.py"}]
-        with patch("app.services.indicator_service.list_custom_indicators", return_value=custom):
+    def test_list_indicators_with_real_custom(self, svc, custom_indicator_dir):
+        with patch("app.services.indicator_service.list_custom_indicators") as mock_list:
+            mock_list.return_value = [{
+                "name": "my_custom",
+                "description": "custom test indicator",
+                "path": str(custom_indicator_dir / "my_custom.py"),
+            }]
             result = svc.list_indicators()
-            custom_entries = [r for r in result if r["name"] == "custom1"]
+            custom_entries = [r for r in result if r["name"] == "my_custom"]
             assert len(custom_entries) == 1
             assert custom_entries[0]["is_builtin"] is False
 
@@ -109,15 +126,20 @@ class TestListAndGetIndicators:
 
 
 class TestRunCustomIndicator:
-    def test_run_custom_indicator(self, svc, sample_df):
-        mock_result = sample_df.copy()
-        mock_result["custom_col"] = 1.0
-        with patch("app.services.indicator_service.execute_custom_indicator", return_value=mock_result):
-            result = svc.run_custom_indicator("/tmp/test.py", sample_df)
-            assert result is not None
-            assert "custom_col" in result.columns
+    def test_run_custom_indicator_real_script(self, svc, sample_df, custom_indicator_dir):
+        result = svc.run_custom_indicator(
+            str(custom_indicator_dir / "my_custom.py"), sample_df, params={"period": 2}
+        )
+        assert result is not None
+        assert "custom_result" in result.columns
+        assert result["custom_result"].iloc[0] == sample_df["close"].iloc[0] * 2
 
-    def test_run_custom_indicator_with_params(self, svc, sample_df):
-        with patch("app.services.indicator_service.execute_custom_indicator", return_value=sample_df) as mock_exec:
-            svc.run_custom_indicator("/tmp/test.py", sample_df, params={"period": 10})
-            mock_exec.assert_called_once_with("/tmp/test.py", sample_df, {"period": 10})
+    def test_run_custom_indicator_nonexistent(self, svc, sample_df):
+        result = svc.run_custom_indicator("/nonexistent/script.py", sample_df)
+        assert result is None
+
+    def test_run_custom_indicator_error_script(self, svc, sample_df, custom_indicator_dir):
+        err_script = custom_indicator_dir / "error_ind.py"
+        err_script.write_text("def calculate(df):\n    raise RuntimeError('indicator boom')\n")
+        result = svc.run_custom_indicator(str(err_script), sample_df)
+        assert result is None

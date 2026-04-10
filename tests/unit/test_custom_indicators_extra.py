@@ -4,7 +4,6 @@ Custom indicators additional unit tests covering uncovered lines.
 
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock, patch
 
 import pandas as pd
 import pytest
@@ -22,7 +21,7 @@ def sample_df():
 
 
 @pytest.fixture
-def script_dir(tmp_path):
+def script_dir(tmp_path, test_settings):
     sdir = tmp_path / "scripts"
     sdir.mkdir()
     good = sdir / "my_indicator.py"
@@ -30,7 +29,11 @@ def script_dir(tmp_path):
         "def calculate(df, period=14):\n"
         "    return df.assign(result=df['close'] * period)\n"
     )
-    return sdir
+
+    original = test_settings.indicators.custom_path
+    test_settings.indicators.custom_path = str(sdir)
+    yield sdir
+    test_settings.indicators.custom_path = original
 
 
 class TestLoadIndicatorScript:
@@ -77,41 +80,31 @@ class TestExecuteCustomIndicator:
 
 
 class TestListCustomIndicators:
-    def test_list_empty_dir(self, tmp_path):
+    def test_list_empty_dir(self, tmp_path, test_settings):
         empty_dir = tmp_path / "empty"
         empty_dir.mkdir()
-        with patch("app.utils.indicators.custom.get_settings") as mock_settings:
-            s = MagicMock()
-            s.indicators.custom_path = str(empty_dir)
-            mock_settings.return_value = s
-            result = list_custom_indicators()
+        original = test_settings.indicators.custom_path
+        test_settings.indicators.custom_path = str(empty_dir)
+        result = list_custom_indicators()
+        test_settings.indicators.custom_path = original
         assert result == []
 
-    def test_list_nonexistent_dir(self):
-        with patch("app.utils.indicators.custom.get_settings") as mock_settings:
-            s = MagicMock()
-            s.indicators.custom_path = "/nonexistent_xyz_abc"
-            mock_settings.return_value = s
-            result = list_custom_indicators()
+    def test_list_nonexistent_dir(self, test_settings):
+        original = test_settings.indicators.custom_path
+        test_settings.indicators.custom_path = "/nonexistent_xyz_abc"
+        result = list_custom_indicators()
+        test_settings.indicators.custom_path = original
         assert result == []
 
     def test_list_with_scripts(self, script_dir):
-        with patch("app.utils.indicators.custom.get_settings") as mock_settings:
-            s = MagicMock()
-            s.indicators.custom_path = str(script_dir)
-            mock_settings.return_value = s
-            result = list_custom_indicators()
+        result = list_custom_indicators()
         assert len(result) == 1
         assert result[0]["name"] == "my_indicator"
         assert "path" in result[0]
 
     def test_list_skips_underscore(self, script_dir):
         (script_dir / "__init__.py").write_text("")
-        with patch("app.utils.indicators.custom.get_settings") as mock_settings:
-            s = MagicMock()
-            s.indicators.custom_path = str(script_dir)
-            mock_settings.return_value = s
-            result = list_custom_indicators()
+        result = list_custom_indicators()
         names = [r["name"] for r in result]
         assert "__init__" not in names
 
@@ -121,11 +114,7 @@ class TestListCustomIndicators:
             '"""My custom indicator."""\n'
             "def calculate(df):\n    return df\n"
         )
-        with patch("app.utils.indicators.custom.get_settings") as mock_settings:
-            s = MagicMock()
-            s.indicators.custom_path = str(script_dir)
-            mock_settings.return_value = s
-            result = list_custom_indicators()
+        result = list_custom_indicators()
         doc_entry = [r for r in result if r["name"] == "doc_indicator"]
         assert len(doc_entry) == 1
         assert doc_entry[0]["description"] == "custom indicator."
@@ -136,11 +125,7 @@ class TestListCustomIndicators:
             "# This is a comment description\n"
             "def calculate(df):\n    return df\n"
         )
-        with patch("app.utils.indicators.custom.get_settings") as mock_settings:
-            s = MagicMock()
-            s.indicators.custom_path = str(script_dir)
-            mock_settings.return_value = s
-            result = list_custom_indicators()
+        result = list_custom_indicators()
         comment_entry = [r for r in result if r["name"] == "comment_indicator"]
         assert len(comment_entry) == 1
         assert comment_entry[0]["description"] == "This is a comment description"

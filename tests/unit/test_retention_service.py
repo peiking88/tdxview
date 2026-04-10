@@ -1,11 +1,16 @@
 """
 RetentionService additional unit tests covering uncovered lines.
+
+原则：真实环境优先于 mock
+- DuckDB 使用真实临时实例
+- 文件系统操作使用真实临时目录
+- get_settings 已由 conftest autouse patch 指向临时目录
 """
 
 import json
 import time
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -13,30 +18,70 @@ from app.services.retention_service import RetentionService
 
 
 @pytest.fixture
-def data_dirs(tmp_path):
+def data_dirs(tmp_path, test_settings):
     parquet_dir = tmp_path / "parquet"
     parquet_dir.mkdir()
     cache_dir = tmp_path / "cache"
     cache_dir.mkdir()
     queries_dir = cache_dir / "queries"
     queries_dir.mkdir()
-    return {
+    db_path = str(tmp_path / "test.duckdb")
+
+    originals = {
+        "parquet_dir": test_settings.database.parquet_dir,
+        "cache_dir": test_settings.database.cache_dir,
+        "duckdb_path": test_settings.database.duckdb_path,
+    }
+    test_settings.database.parquet_dir = str(parquet_dir)
+    test_settings.database.cache_dir = str(cache_dir)
+    test_settings.database.duckdb_path = db_path
+
+    yield {
         "parquet_dir": parquet_dir,
         "cache_dir": cache_dir,
         "queries_dir": queries_dir,
+        "db_path": db_path,
     }
+
+    test_settings.database.parquet_dir = originals["parquet_dir"]
+    test_settings.database.cache_dir = originals["cache_dir"]
+    test_settings.database.duckdb_path = originals["duckdb_path"]
 
 
 @pytest.fixture
 def svc(data_dirs):
-    with patch("app.services.retention_service.get_settings") as mock_settings:
-        s = MagicMock()
-        s.database.parquet_dir = str(data_dirs["parquet_dir"])
-        s.database.cache_dir = str(data_dirs["cache_dir"])
-        s.database.duckdb_path = str(data_dirs["parquet_dir"] / "test.duckdb")
-        mock_settings.return_value = s
-        service = RetentionService()
-    service._db = MagicMock()
+    service = RetentionService()
+
+    from app.data.database import DatabaseManager
+    db = DatabaseManager(db_path=data_dirs["db_path"])
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS system_logs (
+            id INTEGER PRIMARY KEY,
+            level TEXT NOT NULL,
+            module TEXT NOT NULL,
+            message TEXT NOT NULL,
+            details JSON,
+            user_id INTEGER,
+            ip_address TEXT,
+            user_agent TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS audit_logs (
+            id INTEGER PRIMARY KEY,
+            user_id INTEGER,
+            action TEXT NOT NULL,
+            resource_type TEXT NOT NULL,
+            resource_id TEXT,
+            details JSON,
+            ip_address TEXT,
+            user_agent TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    db.connection.commit()
+    service._db = db
     return service
 
 
@@ -162,13 +207,30 @@ class TestCleanupCache:
 
 class TestCleanupSystemLogs:
     def test_cleanup_success(self, svc):
-        svc._db.execute.return_value = None
+        from datetime import datetime, timedelta
+        cutoff_time = (datetime.now() - timedelta(days=10)).isoformat()
+        svc._db.execute(
+            "INSERT INTO system_logs (id, level, module, message, created_at) VALUES (?, ?, ?, ?, ?)",
+            [1, "INFO", "test", "old_log", cutoff_time],
+        )
+        svc._db.execute(
+            "INSERT INTO system_logs (id, level, module, message) VALUES (?, ?, ?, ?)",
+            [2, "INFO", "test", "new_log"],
+        )
+        svc._db.connection.commit()
+
         result = svc.cleanup_system_logs(max_age_days=30)
         assert result["status"] == "ok"
         assert "cutoff" in result
 
-    def test_cleanup_error(self, svc):
-        svc._db.execute.side_effect = Exception("db error")
+        remaining = svc._db.fetch_all("SELECT * FROM system_logs")
+        assert len(remaining) >= 1
+
+    def test_cleanup_error_no_table(self, svc):
+        svc._db = type("FakeDB", (), {
+            "execute": lambda self, *a, **kw: (_ for _ in ()).throw(Exception("no table")),
+            "connection": type("FakeConn", (), {"commit": lambda self: None})(),
+        })()
         result = svc.cleanup_system_logs()
         assert result["status"] == "error"
 
@@ -185,7 +247,6 @@ class TestGetStorageStats:
 
 class TestRunFullRetention:
     def test_run_full(self, svc, data_dirs):
-        svc._db.execute.return_value = None
         result = svc.run_full_retention()
         assert "timestamp" in result
         assert "archive" in result

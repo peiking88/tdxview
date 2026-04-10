@@ -9,15 +9,14 @@ import pytest
 
 class TestSimpleDataService:
 
-    def test_get_history(self, data_service, mock_source):
-        df = data_service.get_history(["AAPL"], "2024-01-01", "2024-01-31")
+    def test_get_history(self, data_service, mock_source, tdx_available):
+        df = data_service.get_history(["000001"], "2024-01-01", "2024-01-31")
         assert df is not None
         assert not df.empty
         assert "close" in df.columns
-        # mock_source.fetch_history.assert_called()  # 跳过mock检查
 
-    def test_get_realtime(self, data_service, mock_source):
-        df = data_service.get_realtime(["AAPL", "GOOGL"])
+    def test_get_realtime(self, data_service, mock_source, tdx_available):
+        df = data_service.get_realtime(["000001", "600000"])
         assert df is not None
         assert not df.empty
         assert "symbol" in df.columns
@@ -74,18 +73,16 @@ class TestSimpleUserService:
         assert hasattr(user_service, "get_user_preferences")
 
     def test_register_and_authenticate(self, us, clean_db):
-        ok, msg = us.register_user("simple_user", "pass")
+        ok, msg = us.register_user("simple_user", "Pass!1234")
         assert ok is True, f"Registration failed: {msg}"
-        user = us.authenticate_user("simple_user", "pass")
+        user = us.authenticate_user("simple_user", "Pass!1234")
         assert user is not None
         assert user["username"] == "simple_user"
 
     def test_hash_and_verify_password(self, us):
-        # 跳过bcrypt测试，因为bcrypt库有版本兼容性问题
-        # hashed = us.hash_password("testpass")
-        # assert us.verify_password("testpass", hashed) is True
-        # assert us.verify_password("wrong", hashed) is False
-        pass
+        hashed = us.hash_password("testpass!1")
+        assert us.verify_password("testpass!1", hashed) is True
+        assert us.verify_password("wrong!pwd1", hashed) is False
 
     def test_create_and_decode_jwt(self, us):
         token = us.create_access_token({"sub": "testuser"})
@@ -96,8 +93,8 @@ class TestSimpleUserService:
 
 class TestSimpleCrossService:
 
-    def test_data_to_indicator_pipeline(self, data_service, indicator_service, mock_source):
-        df = data_service.get_history(["AAPL"], "2024-01-01", "2024-01-31")
+    def test_data_to_indicator_pipeline(self, data_service, indicator_service, mock_source, tdx_available):
+        df = data_service.get_history(["000001"], "2024-01-01", "2024-01-31")
         assert not df.empty
 
         result = indicator_service.calculate("sma", df, params={"period": 5})

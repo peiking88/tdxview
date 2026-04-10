@@ -57,18 +57,15 @@ class TestSystemMetrics:
 class TestAppMetrics:
     """Test _get_app_metrics helper."""
 
-    @patch("app.components.dashboard.get_settings")
-    def test_returns_app_metrics(self, mock_get_settings):
+    def test_returns_app_metrics(self, test_settings):
         from app.components.dashboard import _get_app_metrics
 
-        mock_settings = MagicMock()
-        mock_settings.database.duckdb_path = "/tmp/nonexistent_test_db.db"
-        mock_settings.database.parquet_dir = "data/parquet"
-        mock_settings.database.cache_dir = "data/cache"
-        mock_settings.logging.file_path = "log/tdxview.log"
-        mock_settings.environment = "development"
-        mock_settings.app.debug = True
-        mock_get_settings.return_value = mock_settings
+        test_settings.database.duckdb_path = "/tmp/nonexistent_test_db.db"
+        test_settings.database.parquet_dir = "data/parquet"
+        test_settings.database.cache_dir = "data/cache"
+        test_settings.logging.file_path = "log/tdxview.log"
+        test_settings.environment = "development"
+        test_settings.app.debug = True
 
         result = _get_app_metrics()
         assert "db_size_mb" in result

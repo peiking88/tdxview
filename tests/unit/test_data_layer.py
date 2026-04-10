@@ -366,7 +366,7 @@ class TestTdxDataSource:
 # ===========================================================================
 
 @pytest.fixture
-def data_svc(tmp_dir):
+def data_svc(tmp_dir, test_settings):
     """Create a DataService with a temp database."""
     from app.services.data_service import DataService
 
@@ -391,15 +391,14 @@ def data_svc(tmp_dir):
     conn.commit()
     conn.close()
 
-    settings = get_settings()
-    original = settings.database.duckdb_path
-    settings.database.duckdb_path = db_path
+    original = test_settings.database.duckdb_path
+    test_settings.database.duckdb_path = db_path
 
     svc = DataService()
     yield svc
 
     svc.close()
-    settings.database.duckdb_path = original
+    test_settings.database.duckdb_path = original
 
 
 class TestDataServiceSourceCRUD:
@@ -495,5 +494,3 @@ class TestDataServiceFetch:
             assert "checked_at" in health
 
 
-# Import get_settings for fixture use
-from app.config.settings import get_settings

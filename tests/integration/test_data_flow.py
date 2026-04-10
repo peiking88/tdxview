@@ -8,14 +8,13 @@ import pytest
 
 class TestHistoryDataFlow:
 
-    def test_get_history_caches_result(self, data_service, mock_source):
-        mock_source.fetch_history.reset_mock()
-        df1 = data_service.get_history(["AAPL"], "2024-01-01", "2024-01-31")
-        df2 = data_service.get_history(["AAPL"], "2024-01-01", "2024-01-31")
+    def test_get_history_caches_result(self, data_service, mock_source, tdx_available):
+        if not tdx_available:
+            mock_source.fetch_history.reset_mock()
+        df1 = data_service.get_history(["000001"], "2024-01-01", "2024-01-31")
+        df2 = data_service.get_history(["000001"], "2024-01-01", "2024-01-31")
         assert not df1.empty
         assert not df2.empty
-        # 验证数据源被调用
-        # mock_source.fetch_history.assert_called()  # 跳过mock检查
 
     def test_save_and_load_parquet(self, data_service, sample_stock_df):
         data_service.save_to_parquet(sample_stock_df, "AAPL")
@@ -31,19 +30,19 @@ class TestHistoryDataFlow:
         loaded = data_service.load_from_parquet("AAPL", date="2024-01-01")
         assert loaded is not None
 
-    def test_get_realtime(self, data_service, mock_source):
-        df = data_service.get_realtime(["AAPL", "GOOGL"])
+    def test_get_realtime(self, data_service, mock_source, tdx_available):
+        df = data_service.get_realtime(["000001", "600000"])
         assert not df.empty
-        assert "AAPL" in df["symbol"].values
+        assert "000001" in df["symbol"].values
 
-    def test_fetch_and_store(self, data_service, mock_source):
-        result = data_service.fetch_and_store(["AAPL"], "2024-01-01", "2024-01-10")
-        assert "AAPL" in result
-        assert result["AAPL"].exists()
+    def test_fetch_and_store(self, data_service, mock_source, tdx_available):
+        result = data_service.fetch_and_store(["000001"], "2024-01-01", "2024-01-10")
+        assert "000001" in result
+        assert result["000001"].exists()
 
-    def test_parallel_get_history(self, data_service, mock_source):
+    def test_parallel_get_history(self, data_service, mock_source, tdx_available):
         results = data_service.parallel_get_history(
-            ["AAPL", "GOOGL"], "2024-01-01", "2024-01-31"
+            ["000001", "600000"], "2024-01-01", "2024-01-31"
         )
         assert len(results) == 2
         for symbol, df in results.items():
@@ -59,20 +58,20 @@ class TestHistoryDataFlow:
 
 class TestCacheBehaviour:
 
-    def test_cache_clear_then_refetch(self, data_service, mock_source):
-        mock_source.fetch_history.reset_mock()
-        df1 = data_service.get_history(["AAPL"], "2024-01-01", "2024-01-31")
+    def test_cache_clear_then_refetch(self, data_service, mock_source, tdx_available):
+        if not tdx_available:
+            mock_source.fetch_history.reset_mock()
+        df1 = data_service.get_history(["000001"], "2024-01-01", "2024-01-31")
         data_service._cache.clear()
-        df2 = data_service.get_history(["AAPL"], "2024-01-01", "2024-01-31")
-        # 验证数据源被调用多次
-        assert mock_source.fetch_history.call_count >= 1
+        df2 = data_service.get_history(["000001"], "2024-01-01", "2024-01-31")
+        if not tdx_available:
+            assert mock_source.fetch_history.call_count >= 1
 
-    def test_realtime_short_ttl(self, data_service, mock_source):
-        mock_source.fetch_realtime.reset_mock()
-        data_service.get_realtime(["AAPL"])
-        data_service.get_realtime(["AAPL"])
-        # 注意：实时数据有短TTL，但mock可能不会完全模拟缓存行为
-        # 这里只验证方法被调用
+    def test_realtime_short_ttl(self, data_service, mock_source, tdx_available):
+        if not tdx_available:
+            mock_source.fetch_realtime.reset_mock()
+        data_service.get_realtime(["000001"])
+        data_service.get_realtime(["000001"])
 
 
 class TestDataSourceManagement:
@@ -85,7 +84,8 @@ class TestDataSourceManagement:
         stats = data_service.get_stats()
         assert isinstance(stats, dict)
 
-    def test_check_source_health(self, data_service, mock_source):
-        mock_source.validate_connection.return_value = True
+    def test_check_source_health(self, data_service, mock_source, tdx_available):
+        if not tdx_available:
+            mock_source.validate_connection.return_value = True
         health = data_service.check_source_health()
         assert isinstance(health, dict)

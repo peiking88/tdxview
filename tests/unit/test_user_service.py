@@ -77,14 +77,12 @@ class TestJWT:
 # ---------------------------------------------------------------------------
 
 @pytest.fixture
-def tmp_db(tmp_dir):
-    """Create a temporary database and init the schema, then patch settings."""
+def tmp_db(tmp_dir, test_settings):
+    """Create a temporary database and init the schema."""
     db_path = str(tmp_dir / "test.db")
 
     import duckdb
-    from app.config.settings import get_settings
 
-    # Create tables
     conn = duckdb.connect(db_path)
     conn.execute("CREATE SEQUENCE IF NOT EXISTS users_id_seq START 1")
     conn.execute("""
@@ -118,12 +116,10 @@ def tmp_db(tmp_dir):
     conn.commit()
     conn.close()
 
-    # Patch settings so DatabaseManager uses the temp DB
-    settings = get_settings()
-    original_path = settings.database.duckdb_path
-    settings.database.duckdb_path = db_path
+    original = test_settings.database.duckdb_path
+    test_settings.database.duckdb_path = db_path
     yield db_path
-    settings.database.duckdb_path = original_path
+    test_settings.database.duckdb_path = original
 
 
 class TestRegisterUser:
