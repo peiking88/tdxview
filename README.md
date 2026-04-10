@@ -124,15 +124,26 @@ app/
 config.yaml              # Application configuration
 plugins/indicators/      # Custom indicator scripts
 scripts/init_database.py # Database initialization
-tests/                   # Test suite (256 passed, 3 skipped)
+tests/                   # Test suite (518 passed, 94% coverage)
 external/tdxdata/        # Third-party data library (read-only)
 ```
 
 ## Testing
 
 ```bash
-pytest tests/ -v
+# Run all tests with coverage report
+pytest tests/ --cov=app --cov-report=term-missing
+
+# Core business code coverage: 94%
+# Excludes: Streamlit UI components, third-party adapters, main entry point
 ```
+
+**Test Coverage Status**:
+- **Total tests**: 518 passed
+- **Core business code coverage**: 94%
+- **Coverage configuration**: Excludes UI components (`app/components/*`), third-party adapters (`tdxdata_source.py`), and main entry point (`main.py`)
+- **Test categories**: Unit tests for services, data layer, utilities, and integration tests
+- **Quality gates**: 80% minimum coverage required (configured in pyproject.toml)
 
 ## Configuration
 

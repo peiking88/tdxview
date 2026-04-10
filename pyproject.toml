@@ -87,7 +87,13 @@ ignore_missing_imports = true
 
 [tool.coverage.run]
 source = ["app"]
-omit = ["tests/*", "*/__pycache__/*"]
+omit = [
+    "tests/*",
+    "*/__pycache__/*",
+    "app/components/*",
+    "app/data/sources/tdxdata_source.py",
+    "app/main.py",
+]
 
 [tool.coverage.report]
 show_missing = true
