@@ -65,6 +65,8 @@ markers = [
     "integration: marks integration tests",
     "live: marks tests requiring live network",
     "local: marks tests requiring local TDX files",
+    "critical: marks critical E2E tests (auth, navigation)",
+    "regression: marks regression E2E tests (charts, indicators, data)",
 ]
 filterwarnings = [
     "ignore::DeprecationWarning",

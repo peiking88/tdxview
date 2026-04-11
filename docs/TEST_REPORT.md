@@ -13,7 +13,8 @@
 | 单元测试 | 306 | 306 | 0 | 0 | 100% |
 | 集成测试 | 89 | 89 | 0 | 0 | 100% |
 | 实时网络测试 | 7 | — | — | 7 | 非交易时段跳过 |
-| **总计** | **402** | **395** | **0** | **7** | **100%** |
+| E2E UI 测试 | 42 | 42 | 0 | 0 | 100% |
+| **总计** | **444** | **437** | **0** | **7** | **100%** |
 
 > 7 个跳过来自 tick 数据测试，仅在非交易时段（市场关闭）时跳过。
 
@@ -156,6 +157,22 @@ tests/
 │   ├── test_end_to_end.py               # 端到端测试 (11 个)
 │   ├── test_simple_integration.py       # 简单集成测试 (16 个)
 │   └── test_live_tdx.py                 # 实时网络测试 (9 个, @pytest.mark.live)
+├── e2e/                                 # E2E UI 测试 (Playwright)
+│   ├── conftest.py                      # Streamlit 服务器启动/停止 + 测试用户管理
+│   ├── pages/                           # Page Object Model
+│   │   ├── base_page.py                 # 导航、等待、sidebar 属性
+│   │   ├── login_page.py                # 登录/注册 POM
+│   │   ├── dashboard_page.py            # 仪表板 POM
+│   │   ├── charts_page.py               # 图表分析 POM
+│   │   ├── indicators_page.py           # 技术指标 POM
+│   │   ├── data_management_page.py      # 数据管理 POM
+│   │   └── config_page.py               # 系统配置 POM
+│   ├── test_auth.py                     # 认证测试 (5 个) @pytest.mark.critical
+│   ├── test_navigation.py               # 导航测试 (8 个) @pytest.mark.critical
+│   ├── test_charts.py                   # 图表测试 (4 个) @pytest.mark.regression
+│   ├── test_indicators.py               # 指标测试 (12 个) @pytest.mark.regression
+│   ├── test_data_management.py          # 数据管理测试 (6 个) @pytest.mark.regression
+│   └── test_dashboard.py               # 仪表板测试 (6 个) @pytest.mark.regression
 └── unit/
     ├── test_backup_service.py           # 备份服务测试 (7 个)
     ├── test_custom_indicators_extra.py  # 自定义指标测试 (13 个)
@@ -171,21 +188,87 @@ tests/
     └── test_user_service.py             # 用户服务测试 (34 个)
 ```
 
+## E2E UI 测试详情 (Playwright)
+
+### 架构设计
+
+```
+tests/e2e/
+├── conftest.py
+│   ├── streamlit_server (session scope)   # 启动真实 Streamlit 进程
+│   ├── page                               # 每个测试新 context + page
+│   ├── authed_page                        # 自动登录的 page
+│   └── _ensure_test_user()                # 预创建 e2e_tester 用户
+└── pages/ (Page Object Model)
+    ├── BasePage                           # navigate_to, wait_for_rerun, wait_for_plotly
+    ├── LoginPage                          # login, expect_logged_in, expect_login_error
+    ├── ChartsPage                         # query_stock, expect_chart_visible
+    ├── IndicatorsPage                     # select_indicator, calculate, toggle_overlay
+    ├── DataManagementPage                 # go_to_fetch_tab, fetch_data
+    └── DashboardPage                      # expect_heading, expect_system_metrics
+```
+
+### Streamlit DOM 定位策略
+
+Streamlit 生成的 DOM 不是标准 HTML 表单，需要特殊定位：
+
+| 元素 | 标准方式 | Streamlit 实际 DOM | 修正方式 |
+|------|----------|-------------------|----------|
+| Selectbox | `select_option()` | `<input role="combobox">` | `click()` + `get_by_role("option")` |
+| 导航 Radio | `get_by_role("radio")` | `[data-testid='stRadio'] label` | `filter(has_text=name).click()` |
+| 表单 Form | `form[data-testid="stForm"]` | 不存在 `<form>` | 直接用 `input[aria-label]` |
+| Checkbox | `get_by_label().check()` | input hidden | `get_by_text(label)` |
+| 日期输入 | `get_by_label("开始日期")` | `input[aria-label="Select a date."]` | 按 index 选择 |
+
+### E2E 测试结果
+
+| 测试文件 | 测试数 | 通过 | 说明 |
+|----------|--------|------|------|
+| test_auth.py | 5 | 5 | 登录、登出、错误密码、tab 切换、欢迎页 |
+| test_navigation.py | 8 | 8 | 默认页面、5 页导航、状态保持 |
+| test_charts.py | 4 | 4 | K 线渲染、空代码、标题、侧边栏 |
+| test_indicators.py | 12 | 12 | 8 指标参数化、叠加开关、状态切换、信息展示 |
+| test_data_management.py | 6 | 6 | 三个 tab、数据获取、Parquet 浏览、数据源列表 |
+| test_dashboard.py | 6 | 6 | 标题、欢迎消息、logo、退出按钮、版本 |
+| **合计** | **42** | **42** | **全部通过** |
+
+### 运行 E2E 测试
+
+```bash
+# 环境准备
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt pytest-playwright requests
+playwright install chromium
+
+# 初始化数据库
+python scripts/init_database.py
+
+# 运行 E2E 测试
+pytest tests/e2e/ -v --timeout=180
+
+# 仅运行 critical 测试
+pytest tests/e2e/ -v -m critical
+
+# 仅运行 regression 测试
+pytest tests/e2e/ -v -m regression
+```
+
 ## 测试质量评估
 
 ### ✅ 优点
-1. **测试稳定性**: 395 个测试全部通过，无失败
+1. **测试稳定性**: 437 个测试全部通过，无失败
 2. **双模式架构**: 离线开发（mock）和线上验证（真实）无缝切换
 3. **配置管理统一**: autouse patch 消除了 60+ 处手动 mock
 4. **真实性优先**: Settings 使用真实实例，仅 mock 外部网络依赖
 5. **覆盖率良好**: 核心业务代码 88%，超过 80% 目标
 6. **自适应跳过**: tick 测试在非交易时段自动跳过，不影响 CI
+7. **E2E UI 覆盖**: 42 个 Playwright 测试覆盖完整用户流程
 
 ### 📊 质量指标
 - **测试通过率**: 100%
 - **核心代码覆盖率**: 88%
-- **测试数量**: 395 个通过, 7 个跳过
-- **测试执行时间**: ~18 秒
+- **测试数量**: 437 个通过, 7 个跳过 (单元+集成+E2E)
+- **测试执行时间**: ~18 秒 (单元+集成) + ~5 分钟 (E2E)
 
 ## 运行指南
 
@@ -210,6 +293,12 @@ pytest tests/ --cov=app --cov-report=term-missing
 
 # 仅运行实时网络测试
 pytest tests/integration/test_live_tdx.py -v -m live
+
+# 运行 E2E UI 测试（需要 Playwright 环境）
+pytest tests/e2e/ -v --timeout=180
+
+# 仅运行 E2E critical 测试
+pytest tests/e2e/ -v -m critical
 ```
 
 ---

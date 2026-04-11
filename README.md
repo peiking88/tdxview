@@ -126,9 +126,12 @@ plugins/indicators/      # Custom indicator scripts
 scripts/init_database.py # Database initialization
 tests/                   # Test suite (395 passed, 7 skipped, dual-mode architecture)
 external/tdxdata/        # Third-party data library (read-only)
+tests/e2e/               # E2E UI tests with Playwright (42 passed)
 ```
 
 ## Testing
+
+### Unit & Integration Tests
 
 ```bash
 # Run all tests (auto-detect TDX server, fallback to mock)
@@ -150,6 +153,37 @@ TDX_LIVE=1 pytest tests/ -q
 - **Coverage configuration**: Excludes UI components (`app/components/*`), third-party adapters (`tdxdata_source.py`), and main entry point (`main.py`)
 - **Test categories**: Unit tests for services, data layer, utilities, and integration tests
 - **Quality gates**: 80% minimum coverage required (configured in pyproject.toml)
+
+### E2E UI Tests (Playwright)
+
+End-to-end browser tests that launch a real Streamlit server and validate the full user flow through the UI.
+
+```bash
+# Setup (one-time)
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt pytest-playwright requests
+playwright install chromium
+
+# Initialize database
+python scripts/init_database.py
+
+# Run E2E tests
+pytest tests/e2e/ -v --timeout=180
+```
+
+**E2E Test Status**:
+- **Total**: 42 tests, all passed
+- **Duration**: ~5 minutes
+- **Browser**: Chromium (headless)
+- **Architecture**: Page Object Model (POM) with 7 page objects, 6 test files
+- **Test categories**:
+  - **Auth** (5): login, logout, wrong password, tab switch, welcome page
+  - **Navigation** (8): page routing, sidebar navigation, state persistence
+  - **Charts** (4): K-line render, empty code, heading, sidebar settings
+  - **Indicators** (12): 8 indicator parametrized, overlay toggle, state switch, info display
+  - **Data Management** (6): tabs, fetch, Parquet browser, source list
+  - **Dashboard** (6): heading, welcome, title, logo, logout, footer
+- **Markers**: `@pytest.mark.critical` (auth, nav), `@pytest.mark.regression` (charts, indicators, data)
 
 ### Dual-Mode Testing Architecture
 
