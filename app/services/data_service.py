@@ -109,6 +109,7 @@ class DataService:
         df = self.source.fetch_realtime(stock_list=stock_list)
 
         if use_cache and not df.empty:
+            df = df.loc[:, ~df.columns.duplicated()]
             self._cache.set(cache_key, json.loads(df.to_json(orient="columns", date_format="iso")), ttl=cache_ttl)
 
         return df

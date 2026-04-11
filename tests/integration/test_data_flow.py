@@ -33,7 +33,7 @@ class TestHistoryDataFlow:
     def test_get_realtime(self, data_service, mock_source, tdx_available):
         df = data_service.get_realtime(["000001", "600000"])
         assert not df.empty
-        assert "000001" in df["symbol"].values
+        assert "000001" in df["stock_code"].values
 
     def test_fetch_and_store(self, data_service, mock_source, tdx_available):
         result = data_service.fetch_and_store(["000001"], "2024-01-01", "2024-01-10")

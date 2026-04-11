@@ -19,7 +19,7 @@ class TestSimpleDataService:
         df = data_service.get_realtime(["000001", "600000"])
         assert df is not None
         assert not df.empty
-        assert "symbol" in df.columns
+        assert "stock_code" in df.columns
 
     def test_save_and_load_parquet(self, data_service, sample_stock_df):
         data_service.save_to_parquet(sample_stock_df, "AAPL", "2024-01")

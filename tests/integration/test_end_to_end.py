@@ -102,7 +102,7 @@ class TestRealtimeDataWorkflow:
     def test_realtime_quotes(self, data_service, mock_source, tdx_available):
         df = data_service.get_realtime(["000001", "600000"])
         assert not df.empty
-        assert "symbol" in df.columns
+        assert "stock_code" in df.columns
         assert len(df) == 2
 
     def test_realtime_cache_short_ttl(self, data_service, mock_source, tdx_available):

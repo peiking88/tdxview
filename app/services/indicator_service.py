@@ -30,6 +30,7 @@ INDICATOR_REGISTRY: Dict[str, Dict[str, Any]] = {
         "category": "trend",
         "display_name": "SMA 简单移动平均线",
         "input": "close",
+        "overlay_supported": True,
     },
     "ema": {
         "fn": ema,
@@ -37,6 +38,7 @@ INDICATOR_REGISTRY: Dict[str, Dict[str, Any]] = {
         "category": "trend",
         "display_name": "EMA 指数移动平均线",
         "input": "close",
+        "overlay_supported": True,
     },
     "macd": {
         "fn": macd,
@@ -44,7 +46,8 @@ INDICATOR_REGISTRY: Dict[str, Dict[str, Any]] = {
         "category": "trend",
         "display_name": "MACD",
         "input": "close",
-        "multi_output": True,  # returns tuple of 3 series
+        "multi_output": True,
+        "overlay_supported": True,
     },
     "rsi": {
         "fn": rsi,
@@ -52,6 +55,7 @@ INDICATOR_REGISTRY: Dict[str, Dict[str, Any]] = {
         "category": "momentum",
         "display_name": "RSI 相对强弱指数",
         "input": "close",
+        "overlay_supported": True,
     },
     "rps": {
         "fn": rps,
@@ -59,6 +63,7 @@ INDICATOR_REGISTRY: Dict[str, Dict[str, Any]] = {
         "category": "momentum",
         "display_name": "RPS 相对价格强度",
         "input": "close",
+        "overlay_supported": True,
     },
     "bollinger_bands": {
         "fn": bollinger_bands,
@@ -66,7 +71,8 @@ INDICATOR_REGISTRY: Dict[str, Dict[str, Any]] = {
         "category": "volatility",
         "display_name": "布林带",
         "input": "close",
-        "multi_output": True,  # returns tuple of 3 series
+        "multi_output": True,
+        "overlay_supported": True,
     },
     "obv": {
         "fn": obv,
@@ -74,6 +80,7 @@ INDICATOR_REGISTRY: Dict[str, Dict[str, Any]] = {
         "category": "volume",
         "display_name": "OBV 能量潮",
         "input": "close,volume",
+        "overlay_supported": True,
     },
     "vwap": {
         "fn": vwap,
@@ -81,6 +88,7 @@ INDICATOR_REGISTRY: Dict[str, Dict[str, Any]] = {
         "category": "volume",
         "display_name": "VWAP 成交量加权平均价",
         "input": "high,low,close,volume",
+        "overlay_supported": True,
     },
 }
 

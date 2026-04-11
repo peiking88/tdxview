@@ -120,10 +120,10 @@ def _create_mock_source():
         "low":  np.random.uniform(9, 27, 31),
         "close": np.random.uniform(10, 32, 31),
         "volume": np.random.randint(100_000, 1_000_000, 31),
-        "symbol": ["000001"] * 31,
+        "stock_code": ["000001"] * 31,
     })
     src.fetch_realtime.return_value = pd.DataFrame({
-        "symbol":  ["000001", "600000"],
+        "stock_code":  ["000001", "600000"],
         "price":   [15.25, 8.50],
         "change":  [0.25, -0.15],
         "change_percent": [1.67, -1.73],

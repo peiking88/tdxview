@@ -23,7 +23,7 @@ from app.components.data_management import data_management_component
 # 页面配置
 st.set_page_config(
     page_title="tdxview - 数据可视化平台",
-    page_icon="📊",
+    page_icon="📈",
     layout="wide",
     initial_sidebar_state="expanded",
     menu_items={
@@ -57,16 +57,31 @@ def main():
         st.session_state.current_page = "dashboard"
     
     # 应用标题
-    st.title("📊 tdxview 数据可视化平台")
+    st.title("📈 tdxview 数据可视化平台")
     st.markdown("---")
     
     # 侧边栏导航
     with st.sidebar:
         st.markdown(
             '<div style="text-align:center;padding:10px 0;">'
-            '<svg width="150" height="50" viewBox="0 0 150 50" xmlns="http://www.w3.org/2000/svg">'
-            '<rect width="150" height="50" rx="8" fill="#1f77b4"/>'
-            '<text x="75" y="32" text-anchor="middle" fill="white" font-size="20" font-family="sans-serif" font-weight="bold">tdxview</text>'
+            '<svg width="180" height="52" viewBox="0 0 180 52" xmlns="http://www.w3.org/2000/svg">'
+            '<defs>'
+            '<linearGradient id="logoGrad" x1="0%" y1="0%" x2="100%" y2="100%">'
+            '<stop offset="0%" style="stop-color:#1a73e8;stop-opacity:1"/>'
+            '<stop offset="100%" style="stop-color:#0d47a1;stop-opacity:1"/>'
+            '</linearGradient>'
+            '<linearGradient id="chartGrad" x1="0%" y1="100%" x2="0%" y2="0%">'
+            '<stop offset="0%" style="stop-color:#1a73e8;stop-opacity:0.15"/>'
+            '<stop offset="100%" style="stop-color:#1a73e8;stop-opacity:0.02"/>'
+            '</linearGradient>'
+            '</defs>'
+            '<rect x="0" y="6" width="40" height="40" rx="10" fill="url(#logoGrad)"/>'
+            '<polyline points="6,38 13,30 20,34 27,18 34,22" fill="none" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>'
+            '<polygon points="6,38 13,30 20,34 27,18 34,22 34,40 6,40" fill="url(#chartGrad)"/>'
+            '<circle cx="34" cy="22" r="2.5" fill="#4fc3f7"/>'
+            '<text x="48" y="24" fill="#1a73e8" font-size="22" font-family="Segoe UI,Arial,sans-serif" font-weight="700" letter-spacing="-0.5">tdx</text>'
+            '<text x="95" y="24" fill="#5f6368" font-size="22" font-family="Segoe UI,Arial,sans-serif" font-weight="300" letter-spacing="-0.5">view</text>'
+            '<text x="48" y="42" fill="#80868b" font-size="10" font-family="Segoe UI,Arial,sans-serif" font-weight="400" letter-spacing="2">DATA INSIGHTS</text>'
             '</svg></div>',
             unsafe_allow_html=True,
         )

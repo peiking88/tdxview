@@ -124,7 +124,7 @@ app/
 config.yaml              # Application configuration
 plugins/indicators/      # Custom indicator scripts
 scripts/init_database.py # Database initialization
-tests/                   # Test suite (393 passed, dual-mode architecture)
+tests/                   # Test suite (395 passed, 7 skipped, dual-mode architecture)
 external/tdxdata/        # Third-party data library (read-only)
 ```
 
@@ -145,7 +145,7 @@ TDX_LIVE=1 pytest tests/ -q
 ```
 
 **Test Coverage Status**:
-- **Total tests**: 393 passed, 9 skipped (live-only network tests)
+- **Total tests**: 395 passed, 7 skipped (tick tests outside trading hours)
 - **Core business code coverage**: 88%
 - **Coverage configuration**: Excludes UI components (`app/components/*`), third-party adapters (`tdxdata_source.py`), and main entry point (`main.py`)
 - **Test categories**: Unit tests for services, data layer, utilities, and integration tests

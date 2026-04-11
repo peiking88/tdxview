@@ -35,24 +35,33 @@ class ParquetManager:
         if date is not None:
             parts = date.split("-")
             path = self._parquet_dir.joinpath(*parts) / f"{symbol}.parquet"
+            if path.exists():
+                return pd.read_parquet(path, engine="pyarrow")
         else:
-            path = self._parquet_dir / f"{symbol}.parquet"
-        if path.exists():
-            return pd.read_parquet(path, engine="pyarrow")
+            matches = sorted(self._parquet_dir.rglob(f"{symbol}.parquet"), reverse=True)
+            if matches:
+                return pd.read_parquet(matches[0], engine="pyarrow")
         return None
 
     def list_symbols(self) -> List[str]:
-        """List all available symbol files (non-recursive)."""
-        return [p.stem for p in self._parquet_dir.glob("*.parquet")]
+        """List all available symbols (recursive search across partitions)."""
+        seen = set()
+        for p in self._parquet_dir.rglob("*.parquet"):
+            seen.add(p.stem)
+        return sorted(seen)
 
     def delete(self, symbol: str, date: Optional[str] = None) -> bool:
         """Delete a Parquet file."""
         if date is not None:
             parts = date.split("-")
             path = self._parquet_dir.joinpath(*parts) / f"{symbol}.parquet"
+            if path.exists():
+                path.unlink()
+                return True
         else:
-            path = self._parquet_dir / f"{symbol}.parquet"
-        if path.exists():
-            path.unlink()
-            return True
+            deleted = False
+            for p in self._parquet_dir.rglob(f"{symbol}.parquet"):
+                p.unlink()
+                deleted = True
+            return deleted
         return False

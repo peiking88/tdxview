@@ -52,8 +52,9 @@ def create_candlestick(
     title: Optional[str] = None,
     show_volume: bool = True,
     ma_periods: Optional[List[int]] = None,
+    bollinger: bool = False,
 ) -> go.Figure:
-    """Create a candlestick chart with optional volume and MA overlays.
+    """Create a candlestick chart with optional volume, MA, and Bollinger overlays.
 
     Expected df columns: date (or datetime), open, high, low, close, volume.
     """
@@ -69,9 +70,11 @@ def create_candlestick(
     else:
         fig = go.Figure()
 
+    x_data = df["date"] if "date" in df.columns else df.index
+
     # --- Candlestick trace ---
     candle = go.Candlestick(
-        x=df["date"] if "date" in df.columns else df.index,
+        x=x_data,
         open=df["open"],
         high=df["high"],
         low=df["low"],
@@ -90,7 +93,7 @@ def create_candlestick(
         if len(df) >= period:
             ma = df["close"].rolling(window=period).mean()
             ma_trace = go.Scatter(
-                x=df["date"] if "date" in df.columns else df.index,
+                x=x_data,
                 y=ma,
                 mode="lines",
                 name=f"MA{period}",
@@ -100,6 +103,47 @@ def create_candlestick(
                 fig.add_trace(ma_trace, row=1, col=1)
             else:
                 fig.add_trace(ma_trace)
+
+    # --- Bollinger Bands overlay ---
+    if bollinger and len(df) >= 20:
+        from app.utils.indicators.volatility import bollinger_bands
+        bb_period = 20
+        bb_std = 2.0
+        upper, middle, lower = bollinger_bands(df["close"], period=bb_period, std_dev=bb_std)
+        if has_vol:
+            fig.add_trace(go.Scatter(
+                x=x_data, y=upper,
+                mode="lines", name=f"BB上轨({bb_period})",
+                line=dict(width=1, dash="dash", color="rgba(0,100,200,0.7)"),
+            ), row=1, col=1)
+            fig.add_trace(go.Scatter(
+                x=x_data, y=middle,
+                mode="lines", name=f"BB中轨({bb_period})",
+                line=dict(width=1, color="rgba(0,100,200,0.5)"),
+            ), row=1, col=1)
+            fig.add_trace(go.Scatter(
+                x=x_data, y=lower,
+                mode="lines", name=f"BB下轨({bb_period})",
+                line=dict(width=1, dash="dash", color="rgba(0,100,200,0.7)"),
+                fill="tonexty", fillcolor="rgba(0,100,200,0.08)",
+            ), row=1, col=1)
+        else:
+            fig.add_trace(go.Scatter(
+                x=x_data, y=upper,
+                mode="lines", name=f"BB上轨({bb_period})",
+                line=dict(width=1, dash="dash", color="rgba(0,100,200,0.7)"),
+            ))
+            fig.add_trace(go.Scatter(
+                x=x_data, y=middle,
+                mode="lines", name=f"BB中轨({bb_period})",
+                line=dict(width=1, color="rgba(0,100,200,0.5)"),
+            ))
+            fig.add_trace(go.Scatter(
+                x=x_data, y=lower,
+                mode="lines", name=f"BB下轨({bb_period})",
+                line=dict(width=1, dash="dash", color="rgba(0,100,200,0.7)"),
+                fill="tonexty", fillcolor="rgba(0,100,200,0.08)",
+            ))
 
     # --- Volume bars ---
     if has_vol:
@@ -292,11 +336,11 @@ def prepare_kline_data(df: pd.DataFrame) -> pd.DataFrame:
         df = df.rename(columns={"vol": "volume"})
 
     if "stock_code" in df.columns and "code" in df.columns:
-        df = df.drop(columns=["code"])
+        df = df.drop(columns=["stock_code"])
 
     rename_map = {
-        "stock_code": "symbol",
-        "code": "symbol",
+        "stock_code": "code",
+        "symbol": "code",
         "datetime": "date",
         "time": "date",
     }
