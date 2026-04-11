@@ -48,18 +48,52 @@ A stock market data visualization platform built on [tdxdata](./external/tdxdata
 
 ## Quick Start
 
-### Prerequisites
+### One-Click Script (Recommended)
+
+```bash
+bash scripts/setup_dev.sh all
+```
+
+This single command installs dependencies, initializes the database, and starts the application.
+
+#### Script Commands
+
+| Command | Description |
+|---------|-------------|
+| `bash scripts/setup_dev.sh setup` | Install dependencies & initialize environment |
+| `bash scripts/setup_dev.sh run` | Start the Streamlit application (port 8501) |
+| `bash scripts/setup_dev.sh run --port 9000` | Start on a custom port |
+| `bash scripts/setup_dev.sh test` | Run unit & integration tests |
+| `bash scripts/setup_dev.sh test -- -k "test_data"` | Pass extra pytest arguments |
+| `bash scripts/setup_dev.sh e2e` | Run E2E UI tests (Playwright) |
+| `bash scripts/setup_dev.sh all` | Full setup + start application |
+
+#### Options (for `setup` / `all`)
+
+| Option | Description |
+|--------|-------------|
+| `--skip-e2e` | Skip E2E test dependencies |
+| `--skip-playwright` | Skip Playwright browser download |
+| `--skip-db` | Skip database initialization |
+| `--verbose` | Show detailed pip output |
+
+### Manual Setup
+
+<details>
+<summary>Manual installation steps</summary>
+
+#### Prerequisites
 
 - Python 3.10+
--通达信行情服务器 connectivity (or local TDX data files)
+- 通达信行情服务器 connectivity (or local TDX data files)
 
-### Install
+#### Install
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### Initialize Database
+#### Initialize Database
 
 ```bash
 python3 scripts/init_database.py
@@ -67,13 +101,15 @@ python3 scripts/init_database.py
 
 Default admin account: `admin` / `admin123` (change after first login)
 
-### Run
+#### Run
 
 ```bash
 streamlit run app/main.py
 ```
 
 Open http://localhost:8501 in your browser.
+
+</details>
 
 ### Docker
 
@@ -124,6 +160,7 @@ app/
 config.yaml              # Application configuration
 plugins/indicators/      # Custom indicator scripts
 scripts/init_database.py # Database initialization
+scripts/setup_dev.sh     # One-click setup/run/test script
 tests/                   # Test suite (395 passed, 7 skipped, dual-mode architecture)
 external/tdxdata/        # Third-party data library (read-only)
 tests/e2e/               # E2E UI tests with Playwright (42 passed)
