@@ -14,6 +14,26 @@ PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..
 TEST_USERNAME = "e2e_tester"
 TEST_PASSWORD = "Test!1234"
 
+SYSTEM_CHROMIUM = "/snap/bin/chromium"
+
+
+def _find_chromium():
+    """Locate a usable Chromium executable for Playwright."""
+    candidates = [SYSTEM_CHROMIUM, "/usr/bin/chromium-browser", "/usr/bin/chromium"]
+    for path in candidates:
+        if os.path.isfile(path) and os.access(path, os.X_OK):
+            return path
+    return None
+
+
+@pytest.fixture(scope="session")
+def browser_type_launch_args():
+    """Override pytest-playwright's launch args to use system Chromium."""
+    chromium_path = _find_chromium()
+    if chromium_path:
+        return {"executable_path": chromium_path}
+    return {}
+
 
 def _wait_for_streamlit_server(port: int, timeout: int = 60):
     url = f"http://localhost:{port}/_stcore/health"

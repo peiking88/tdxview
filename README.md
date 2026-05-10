@@ -39,7 +39,7 @@ A stock market data visualization platform built on [tdxdata](./external/tdxdata
 - **Historical Charts**: K-line (candlestick), line, bar, heatmap with MA overlays
 - **Real-time Monitoring**: Live quotes dashboard with configurable watchlists
 - **Technical Indicators**: SMA, EMA, MACD, RSI, RPS, Bollinger Bands, OBV, VWAP + custom plugin indicators
-- **Data Management**: Fetch, store to Parquet, browse local data files
+- **Data Management**: 全类型数据导入（history/realtime/tick/financial/F10/basic）、增量导入、完整重导、导入状态跟踪、Parquet 数据浏览
 - **System Configuration**: Data source management, cache settings, user preferences
 - **Data Retention**: Archive/purge old Parquet files, cleanup expired cache and logs
 - **Backup & Restore**: Timestamped tar.gz backups with integrity verification
@@ -161,9 +161,9 @@ config.yaml              # Application configuration
 plugins/indicators/      # Custom indicator scripts
 scripts/init_database.py # Database initialization
 scripts/setup_dev.sh     # One-click setup/run/test script
-tests/                   # Test suite (395 passed, 7 skipped, dual-mode architecture)
+tests/                   # Test suite (438 passed, dual-mode architecture)
 external/tdxdata/        # Third-party data library (read-only)
-tests/e2e/               # E2E UI tests with Playwright (42 passed)
+tests/e2e/               # E2E UI tests with Playwright (46 passed)
 ```
 
 ## Testing
@@ -180,14 +180,14 @@ TDX_LIVE=0 pytest tests/ -q
 # Force real TDX server
 TDX_LIVE=1 pytest tests/ -q
 
-# Core business code coverage: 88%
+# Core business code coverage: 87.61%
 # Excludes: Streamlit UI components, third-party adapters, main entry point
 ```
 
 **Test Coverage Status**:
 
-- **Total tests**: 395 passed, 7 skipped (tick tests outside trading hours)
-- **Core business code coverage**: 88%
+- **Total tests**: 438 passed, 0 skipped (TDX_LIVE=1)
+- **Core business code coverage**: 87.61%
 - **Coverage configuration**: Excludes UI components (`app/components/*`), third-party adapters (`tdxdata_source.py`), and main entry point (`main.py`)
 - **Test categories**: Unit tests for services, data layer, utilities, and integration tests
 - **Quality gates**: 80% minimum coverage required (configured in pyproject.toml)
@@ -200,27 +200,27 @@ End-to-end browser tests that launch a real Streamlit server and validate the fu
 # Setup (one-time)
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt pytest-playwright requests
-playwright install chromium
 
 # Initialize database
 python scripts/init_database.py
 
-# Run E2E tests
+# Run E2E tests (使用系统 Chromium)
 pytest tests/e2e/ -v --timeout=180
 ```
 
 **E2E Test Status**:
 
-- **Total**: 42 tests, all passed
+- **Total**: 46 tests, all passed
 - **Duration**: ~5 minutes
 - **Browser**: Chromium (headless)
 - **Architecture**: Page Object Model (POM) with 7 page objects, 6 test files
+- **Browser**: Chromium (系统 snap 安装)
 - **Test categories**:
   - **Auth** (5): login, logout, wrong password, tab switch, welcome page
   - **Navigation** (8): page routing, sidebar navigation, state persistence
   - **Charts** (4): K-line render, empty code, heading, sidebar settings
   - **Indicators** (12): 8 indicator parametrized, overlay toggle, state switch, info display
-  - **Data Management** (6): tabs, fetch, Parquet browser, source list
+  - **Data Management** (10): 4-tab layout (导入/状态/浏览/数据源), 全类型导入, 状态查询, 数据浏览
   - **Dashboard** (6): heading, welcome, title, logo, logout, footer
 - **Markers**: `@pytest.mark.critical` (auth, nav), `@pytest.mark.regression` (charts, indicators, data)
 

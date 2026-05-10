@@ -15,11 +15,9 @@ class TestCharts:
         bp.wait_for_rerun()
         charts = ChartsPage(authed_page)
         charts.query_stock("600519")
-        expect(
-            authed_page.get_by_text("获取数据").or_(
-                authed_page.locator("[data-testid='stPlotlyChart']")
-            )
-        ).to_be_visible()
+        # Either data loaded (plotly chart) or still fetching (button visible)
+        chart = authed_page.locator("[data-testid='stPlotlyChart']").first
+        assert chart.is_visible() or authed_page.get_by_text("获取数据").is_visible()
 
     def test_empty_code_warning(self, authed_page):
         bp = BasePage(authed_page)

@@ -210,6 +210,24 @@ def init_database():
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
     """)
+
+    # 创建数据导入记录表
+    print("创建数据导入记录表...")
+    conn.execute("""
+    CREATE TABLE IF NOT EXISTS data_imports (
+        symbol TEXT NOT NULL,
+        data_type TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'success',
+        record_count INTEGER DEFAULT 0,
+        start_date DATE,
+        end_date DATE,
+        parquet_path TEXT,
+        file_size_bytes INTEGER,
+        error_message TEXT,
+        import_duration_ms INTEGER,
+        imported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
     
     # 创建索引
     print("创建索引...")
@@ -260,6 +278,10 @@ def init_database():
     conn.execute("CREATE INDEX IF NOT EXISTS idx_audit_logs_user_id ON audit_logs(user_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_audit_logs_action ON audit_logs(action)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs(created_at)")
+
+    # 数据导入记录表索引
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_data_imports_symbol_type ON data_imports(symbol, data_type)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_data_imports_imported_at ON data_imports(imported_at)")
     
     # 插入默认数据
     print("插入默认数据...")
@@ -418,9 +440,9 @@ def init_database():
     
     # 查询表统计
     tables = [
-        "users", "data_sources", "indicators", "dashboards", 
+        "users", "data_sources", "indicators", "dashboards",
         "charts", "time_index", "asset_index", "query_cache",
-        "system_logs", "audit_logs"
+        "system_logs", "audit_logs", "data_imports"
     ]
     
     for table in tables:

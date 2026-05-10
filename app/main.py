@@ -221,6 +221,9 @@ def initialize_app():
             conn.close()
             required = {"users", "data_sources", "indicators", "dashboards"}
             needs_init = not required.issubset(set(tables))
+            # Ensure data_imports table exists even if other tables do
+            if not needs_init and "data_imports" not in tables:
+                needs_init = True
         except Exception:
             needs_init = True
 

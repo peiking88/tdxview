@@ -216,6 +216,92 @@ class TestParquetManager:
         pm = ParquetManager(parquet_dir=str(tmp_dir / "parquet"))
         assert pm.delete("NOPE") is False
 
+    # --- data_type parameter tests ---
+
+    def test_save_and_load_financial(self, tmp_dir):
+        pm = ParquetManager(parquet_dir=str(tmp_dir / "parquet"))
+        df = pd.DataFrame({"revenue": [100, 200]})
+        path = pm.save(df, "600519", data_type="financial")
+        assert "financial" in str(path)
+        loaded = pm.load("600519", data_type="financial")
+        assert loaded is not None
+        assert len(loaded) == 2
+
+    def test_save_and_load_basic(self, tmp_dir):
+        pm = ParquetManager(parquet_dir=str(tmp_dir / "parquet"))
+        df = pd.DataFrame({"dividend": [0.5]})
+        pm.save(df, "000001", data_type="basic")
+        loaded = pm.load("000001", data_type="basic")
+        assert loaded is not None
+
+    def test_save_and_load_f10(self, tmp_dir):
+        pm = ParquetManager(parquet_dir=str(tmp_dir / "parquet"))
+        df = pd.DataFrame({"section": ["summary"], "item": ["EPS"]})
+        pm.save(df, "600519", data_type="f10")
+        loaded = pm.load("600519", data_type="f10")
+        assert loaded is not None
+
+    def test_save_and_load_tick_with_date(self, tmp_dir):
+        pm = ParquetManager(parquet_dir=str(tmp_dir / "parquet"))
+        df = pd.DataFrame({"price": [15.0], "volume": [100]})
+        path = pm.save(df, "000001", date="2024-01-15", data_type="tick")
+        assert "tick/2024-01-15" in str(path)
+        loaded = pm.load("000001", date="2024-01-15", data_type="tick")
+        assert loaded is not None
+        assert len(loaded) == 1
+
+    def test_save_and_load_realtime(self, tmp_dir):
+        pm = ParquetManager(parquet_dir=str(tmp_dir / "parquet"))
+        df = pd.DataFrame({"price": [15.0]})
+        pm.save(df, "000001", data_type="realtime")
+        loaded = pm.load("000001", data_type="realtime")
+        assert loaded is not None
+
+    def test_list_symbols_by_type(self, tmp_dir):
+        pm = ParquetManager(parquet_dir=str(tmp_dir / "parquet"))
+        pm.save(pd.DataFrame({"a": [1]}), "AAPL", data_type="history", date="2024-01")
+        pm.save(pd.DataFrame({"b": [2]}), "AAPL", data_type="financial")
+        pm.save(pd.DataFrame({"c": [3]}), "GOOG", data_type="financial")
+        assert "AAPL" in pm.list_symbols(data_type="financial")
+        assert "GOOG" in pm.list_symbols(data_type="financial")
+        assert "AAPL" in pm.list_symbols(data_type="history")
+        assert "GOOG" not in pm.list_symbols(data_type="history")
+
+    def test_list_data_types(self, tmp_dir):
+        pm = ParquetManager(parquet_dir=str(tmp_dir / "parquet"))
+        pm.save(pd.DataFrame({"a": [1]}), "AAPL", data_type="history", date="2024-01")
+        pm.save(pd.DataFrame({"b": [2]}), "AAPL", data_type="financial")
+        types = pm.list_data_types(symbol="AAPL")
+        assert "history" in types
+        assert "financial" in types
+
+    def test_delete_by_type(self, tmp_dir):
+        pm = ParquetManager(parquet_dir=str(tmp_dir / "parquet"))
+        pm.save(pd.DataFrame({"a": [1]}), "AAPL", data_type="financial")
+        assert pm.delete("AAPL", data_type="financial") is True
+        assert pm.load("AAPL", data_type="financial") is None
+
+    def test_default_type_is_history(self, tmp_dir):
+        pm = ParquetManager(parquet_dir=str(tmp_dir / "parquet"))
+        df = pd.DataFrame({"a": [1]})
+        path = pm.save(df, "TEST")
+        assert "history" in str(path)
+
+    def test_load_no_date_history_fallback(self, tmp_dir):
+        pm = ParquetManager(parquet_dir=str(tmp_dir / "parquet"))
+        df = pd.DataFrame({"a": [1]})
+        pm.save(df, "FB", date="2024-03", data_type="history")
+        loaded = pm.load("FB", data_type="history")
+        assert loaded is not None
+
+    def test_get_parquet_info(self, tmp_dir):
+        pm = ParquetManager(parquet_dir=str(tmp_dir / "parquet"))
+        pm.save(pd.DataFrame({"a": [1]}), "INFO", data_type="financial")
+        info = pm.get_parquet_info("INFO", "financial")
+        assert info is not None
+        assert "path" in info
+        assert info["size_bytes"] > 0
+
 
 # ===========================================================================
 # DatabaseManager
