@@ -1,0 +1,69 @@
+# Log files — keep log/ directory but ignore log content
+log/*.log
+log/*.gz
+log/*.pdf
+log/*.png
+
+# Build directories
+build/
+dist/
+*.exe
+*.out
+*.app
+
+# Dependencies
+node_modules/
+vendor/
+*.pyc
+__pycache__/
+*.egg-info/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+.trae/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Credentials
+*.pem
+*.key
+*.crt
+credentials
+secrets/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.temp
+
+# Coverage reports
+coverage/
+*.lcov
+htmlcov/
+.pytest_cache/
+.coverage
+
+# Python virtual environment
+.venv/
+venv/
+
+# Project data (generated at runtime)
+data/tdxview.db
+data/parquet/
+data/cache/
+
+# Type checking
+.mypy_cache/

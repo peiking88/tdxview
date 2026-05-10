@@ -1,0 +1,58 @@
+# tdxview 项目依赖
+# 不引入 docker-compose 相关服务依赖（Redis, Celery, PostgreSQL 等）
+
+# 核心框架
+streamlit>=1.28.0
+pydantic>=2.0.0
+pydantic-settings>=2.0.0
+
+# 数据处理和分析
+pandas>=2.0.0
+numpy>=1.24.0
+duckdb>=0.9.0
+pyarrow>=14.0.0
+
+# 数据可视化
+plotly>=5.18.0
+kaleido>=0.2.1
+
+# 认证和安全
+python-jose[cryptography]>=3.3.0
+passlib[bcrypt]>=1.7.4
+cryptography>=41.0.0
+bcrypt>=4.0.0
+
+# 配置管理
+python-dotenv>=1.0.0
+pyyaml>=6.0
+
+# 网络
+httpx>=0.25.0
+
+# 日志
+loguru>=0.7.0
+
+# 可选：技术指标计算（需要系统安装 ta-lib C 库）
+# ta-lib>=0.4.26
+# vectorbt>=0.25.0
+# numba>=0.58.0
+
+# 测试框架
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+pytest-cov>=4.1.0
+pytest-mock>=3.11.0
+pytest-xdist>=3.5.0
+hypothesis>=6.85.0
+
+# 测试工具
+requests>=2.31.0
+responses>=0.24.0
+freezegun>=1.2.0
+factory-boy>=3.3.0
+
+# 代码质量
+black>=23.0.0
+isort>=5.12.0
+flake8>=6.0.0
+mypy>=1.7.0
