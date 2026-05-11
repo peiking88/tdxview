@@ -3,7 +3,7 @@
 
 app:
   name: "tdxview"
-  version: "1.1.0"
+  version: "1.2.0"
   debug: false
   secret_key: "${APP_SECRET_KEY:changemeinproduction}" # 用于加密的密钥
   host: "0.0.0.0"

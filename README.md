@@ -1,6 +1,6 @@
 # tdxview
 
-A stock market data visualization platform built on [tdxdata](./external/tdxdata/). It provides real-time monitoring, historical data analysis, technical indicator calculation, and interactive charting through a Streamlit web interface.
+A stock market data visualization platform built on [tdxdata](https://github.com/peiking88/tdxdata). It provides real-time monitoring, historical data analysis, technical indicator calculation, and interactive charting through a Streamlit web interface.
 
 ## Tech Stack
 
@@ -158,11 +158,12 @@ app/
 └── main.py              # Streamlit app entry
 
 config.yaml              # Application configuration
+cfg/                     # 配置文件目录
+output/                  # 输出文件目录
 plugins/indicators/      # Custom indicator scripts
 scripts/init_database.py # Database initialization
 scripts/setup_dev.sh     # One-click setup/run/test script
-tests/                   # Test suite (438 passed, dual-mode architecture)
-external/tdxdata/        # Third-party data library (read-only)
+tests/                   # Test suite (355 passed, dual-mode architecture)
 tests/e2e/               # E2E UI tests with Playwright (46 passed)
 ```
 

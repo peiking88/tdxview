@@ -98,6 +98,11 @@ def _list_dashboards(user_id: int) -> List[Dict[str, Any]]:
 def _create_dashboard(user_id: int, name: str, description: str = "") -> bool:
     db = DatabaseManager()
     try:
+        existing = db.fetch_one(
+            "SELECT id FROM dashboards WHERE user_id = ? AND name = ?", [user_id, name]
+        )
+        if existing:
+            return False
         layout = json.dumps({"type": "grid", "columns": 12, "row_height": 30})
         widgets = json.dumps([])
         db.execute(

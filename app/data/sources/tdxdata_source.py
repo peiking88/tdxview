@@ -1,5 +1,5 @@
 """
-Tdxdata source adapter — wraps external/tdxdata for use inside tdxview.
+Tdxdata source adapter — wraps tdxdata library for use inside tdxview.
 
 This adapter delegates all data fetching to the tdxdata library while adding:
 - Connection lifecycle management with auto-reconnect
@@ -17,7 +17,7 @@ from app.data.sources.base_source import DataSourceBase
 
 
 class TdxDataSource(DataSourceBase):
-    """Adapter that delegates to the external tdxdata library."""
+    """Adapter that delegates to the tdxdata library."""
 
     def __init__(
         self,

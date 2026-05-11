@@ -316,6 +316,11 @@ class DataService:
         enabled: bool = True,
     ) -> int:
         """Add a new data source configuration. Returns the new ID."""
+        existing = self._db.fetch_one(
+            "SELECT id FROM data_sources WHERE name = ? AND type = ?", [name, source_type]
+        )
+        if existing:
+            return existing[0]
         self._db.execute(
             "INSERT INTO data_sources (name, type, config, priority, enabled) VALUES (?, ?, ?, ?, ?)",
             [name, source_type, json.dumps(config, ensure_ascii=False), priority, enabled],
@@ -707,9 +712,15 @@ class DataService:
     def check_source_health(self) -> Dict[str, Any]:
         """Check whether the data source is reachable."""
         connected = self.source.validate_connection()
+        now = datetime.now().isoformat()
+        self._db.execute(
+            "UPDATE data_sources SET last_checked = ?, error_count = 0 WHERE type = 'tdxdata'",
+            [now],
+        )
+        self._db.connection.commit()
         return {
             "connected": connected,
-            "checked_at": datetime.now().isoformat(),
+            "checked_at": now,
         }
 
     # ------------------------------------------------------------------

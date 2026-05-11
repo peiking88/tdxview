@@ -249,11 +249,12 @@ class TestDataSourceCRUD:
 
     def test_add_data_source_duplicate_name(self, svc):
         s, source, is_live = svc
-        s.add_data_source("dup_name", "tdxdata", {"timeout": 10})
-        s.add_data_source("dup_name", "tdxdata", {"timeout": 20})
+        sid1 = s.add_data_source("dup_name", "tdxdata", {"timeout": 10})
+        sid2 = s.add_data_source("dup_name", "tdxdata", {"timeout": 20})
         sources = s.list_data_sources()
         dup_count = sum(1 for src in sources if src["name"] == "dup_name")
-        assert dup_count == 2
+        assert dup_count == 1
+        assert sid1 == sid2
 
     def test_update_data_source(self, svc):
         s, source, is_live = svc

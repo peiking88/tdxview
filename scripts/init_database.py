@@ -64,7 +64,8 @@ def init_database():
         last_checked TIMESTAMP,
         error_count INTEGER DEFAULT 0,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(name, type)
     )
     """)
     
@@ -370,18 +371,23 @@ def init_database():
     ]
     
     for indicator in builtin_indicators:
-        conn.execute("""
-        INSERT OR IGNORE INTO indicators 
-        (name, display_name, category, description, parameters, is_builtin)
-        VALUES (?, ?, ?, ?, ?, ?)
-        """, [
-            indicator["name"],
-            indicator["display_name"],
-            indicator["category"],
-            indicator["description"],
-            json.dumps(indicator["parameters"]),
-            indicator["is_builtin"]
-        ])
+        # 仅在不存在时插入，防止重复
+        exists = conn.execute(
+            "SELECT id FROM indicators WHERE name = ?", [indicator["name"]]
+        ).fetchone()
+        if not exists:
+            conn.execute("""
+            INSERT INTO indicators
+            (name, display_name, category, description, parameters, is_builtin)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """, [
+                indicator["name"],
+                indicator["display_name"],
+                indicator["category"],
+                indicator["description"],
+                json.dumps(indicator["parameters"]),
+                indicator["is_builtin"]
+            ])
     
     # 创建默认仪表板
     default_dashboard = {
@@ -420,16 +426,22 @@ def init_database():
     admin_id = conn.execute("SELECT id FROM users WHERE username = 'admin'").fetchone()
     if admin_id:
         admin_id = admin_id[0]
-        conn.execute("""
-        INSERT OR IGNORE INTO dashboards (user_id, name, description, layout, widgets, is_default)
-        VALUES (?, ?, ?, ?, ?, TRUE)
-        """, [
-            admin_id,
-            default_dashboard["name"],
-            default_dashboard["description"],
-            json.dumps(default_dashboard["layout"]),
-            json.dumps(default_dashboard["widgets"])
-        ])
+        # 仅在不存在默认仪表板时插入，防止重复
+        existing = conn.execute(
+            "SELECT id FROM dashboards WHERE user_id = ? AND is_default = TRUE",
+            [admin_id],
+        ).fetchone()
+        if not existing:
+            conn.execute("""
+            INSERT INTO dashboards (user_id, name, description, layout, widgets, is_default)
+            VALUES (?, ?, ?, ?, ?, TRUE)
+            """, [
+                admin_id,
+                default_dashboard["name"],
+                default_dashboard["description"],
+                json.dumps(default_dashboard["layout"]),
+                json.dumps(default_dashboard["widgets"])
+            ])
     
     # 提交事务
     conn.commit()

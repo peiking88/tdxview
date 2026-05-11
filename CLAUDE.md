@@ -57,7 +57,7 @@ app/data/           数据层
   database.py       DuckDB 管理器（用户、数据源元数据）
   parquet_manager.py Parquet 时序数据读写
   models/           Pydantic 数据模型（user, data_source, indicator）
-  sources/          DataSourceBase (ABC) → TdxDataSource（通达信适配器，在 external/tdxdata/ 上封装）
+  sources/          DataSourceBase (ABC) → TdxDataSource（通达信适配器，封装 tdxdata 本地仓库 ~/peiking88/tdxdata）
 app/config/         Pydantic Settings 配置管理，从 config.yaml + .env 加载
 app/utils/          工具模块
   indicators/       内置指标实现（trend: SMA/EMA/MACD, momentum: RSI/RPS, volatility: Bollinger, volume: OBV/VWAP, custom: 动态加载器）
@@ -95,7 +95,7 @@ app/utils/          工具模块
 
 ## 约束
 
-- **禁止修改 `external/` 目录**：tdxdata 为第三方库，只读
-- 数据源适配器 `TdxDataSource` 封装 `external/tdxdata/`，所有访问通过 `DataSourceBase` 抽象接口
+- **tdxdata 依赖**：通过本地仓库 `~/peiking88/tdxdata` 以 editable 模式安装，禁止修改 tdxdata 源码
+- 数据源适配器 `TdxDataSource` 封装 tdxdata 库，所有访问通过 `DataSourceBase` 抽象接口
 - 所有 Pydantic 模型定义在 `app/data/models/`
 - 数值格式：价位金额 `%.2f`、数量 `%d`、百分比 `%d%%`

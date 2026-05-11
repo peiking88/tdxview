@@ -37,13 +37,18 @@ def _render_paginated_table(df: pd.DataFrame, key_prefix: str):
         st.info("无数据")
         return
 
-    total_pages = max(1, (total - 1) // PAGE_SIZE + 1)
+    # 按日期倒序（近日在前）
+    if "date" in df.columns:
+        df = df.sort_values("date", ascending=False).reset_index(drop=True)
+
+    total_pages = (total + PAGE_SIZE - 1) // PAGE_SIZE
     page_key = f"{key_prefix}_page"
 
     if page_key not in st.session_state:
         st.session_state[page_key] = 1
 
-    current_page = st.session_state[page_key]
+    current_page = max(1, min(st.session_state[page_key], total_pages))
+    st.session_state[page_key] = current_page
 
     col1, col2, col3 = st.columns([1, 3, 1])
     with col1:
@@ -64,7 +69,20 @@ def _render_paginated_table(df: pd.DataFrame, key_prefix: str):
     start_idx = (current_page - 1) * PAGE_SIZE
     end_idx = min(start_idx + PAGE_SIZE, total)
     page_df = df.iloc[start_idx:end_idx]
-    st.dataframe(page_df, use_container_width=True, hide_index=True)
+
+    # 价位/金额列格式化为 %.2f
+    price_cols = {"open", "high", "low", "close", "amount", "price", "settlement", "pre_close"}
+    col_config = {}
+    for col in page_df.columns:
+        if col.lower() in price_cols:
+            col_config[col] = st.column_config.NumberColumn(format="%.2f")
+
+    st.dataframe(
+        page_df,
+        use_container_width=True,
+        hide_index=True,
+        column_config=col_config if col_config else None,
+    )
 
 
 def chart_component():
@@ -87,7 +105,7 @@ def chart_component():
         with col1:
             start_date = st.date_input("开始日期", value=pd.Timestamp("2024-01-01"))
         with col2:
-            end_date = st.date_input("结束日期", value=pd.Timestamp("2024-12-31"))
+            end_date = st.date_input("结束日期", value=pd.Timestamp.now().date())
 
         chart_types = ["K线图", "折线图", "柱状图"]
         is_multi = "," in symbol
@@ -147,6 +165,8 @@ def chart_component():
                         use_cache=True,
                     )
                     if df.empty:
+                        st.session_state.chart_df = None
+                        st.session_state.chart_symbol = None
                         st.warning("未获取到数据，请检查股票代码和日期范围。")
                         return
                     st.session_state.chart_df = df
