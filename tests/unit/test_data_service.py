@@ -2,7 +2,7 @@
 DataService additional unit tests covering uncovered lines.
 
 原则：真实环境优先于 mock
-- DuckDB / Parquet / Cache 使用真实临时实例
+- DuckDB 使用真实临时实例
 - 通达信服务器可用时使用真实连接，不可用时自动降级为 mock
 - mock-only 断言（如 assert_called_once）仅在 mock 模式下执行
 - 每个测试用独立的 mock 实例，避免 session scope mock 的调用计数累积
@@ -39,6 +39,7 @@ def _create_unit_mock_source():
         "volume":  [1_500_000, 750_000],
     })
     src.fetch_tick.return_value = pd.DataFrame({
+        "date": ["2024-01-15", "2024-01-15", "2024-01-15"],
         "price": [15.0, 15.01, 15.02],
         "volume": [100, 200, 150],
     })
@@ -54,18 +55,12 @@ def _create_unit_mock_source():
 @pytest.fixture
 def svc(tdx_source, tdx_available, tmp_path):
     db_path = str(tmp_path / "test.duckdb")
-    parquet_dir = str(tmp_path / "parquet")
-    cache_dir = str(tmp_path / "cache")
 
     from app.config.settings import get_settings
     settings = get_settings()
     original_db = settings.database.duckdb_path
-    original_parquet = settings.database.parquet_dir
-    original_cache = settings.database.cache_dir
 
     settings.database.duckdb_path = db_path
-    settings.database.parquet_dir = parquet_dir
-    settings.database.cache_dir = cache_dir
 
     import duckdb
     conn = duckdb.connect(db_path)
@@ -100,8 +95,6 @@ def svc(tdx_source, tdx_available, tmp_path):
         yield service, unit_mock, False
 
     settings.database.duckdb_path = original_db
-    settings.database.parquet_dir = original_parquet
-    settings.database.cache_dir = original_cache
 
 
 class TestGetTick:
@@ -159,9 +152,10 @@ class TestFinancialData:
     def test_get_financial_no_cache(self, svc):
         s, source, is_live = svc
         s.get_financial("000001", use_cache=False)
+        # use_cache is now a no-op; second call loads from DuckDB
         s.get_financial("000001", use_cache=False)
         if not is_live:
-            assert source.fetch_financial.call_count == 2
+            assert source.fetch_financial.call_count == 1
 
     def test_get_f10(self, svc):
         s, source, is_live = svc
@@ -304,8 +298,10 @@ class TestDataSourceCRUD:
 class TestFetchAndStore:
     def test_fetch_and_store_empty(self, svc):
         s, source, is_live = svc
-        with patch.object(s, "get_history", return_value=pd.DataFrame()):
-            result = s.fetch_and_store(["000001"], "2099-01-01", "2099-01-02")
+        # fetch_and_store calls source.fetch_history directly
+        if not is_live:
+            source.fetch_history.return_value = pd.DataFrame()
+        result = s.fetch_and_store(["000001"], "2099-01-01", "2099-01-02")
         assert result == {}
 
     def test_fetch_and_store_single_symbol(self, svc):
@@ -315,7 +311,7 @@ class TestFetchAndStore:
         result = s.fetch_and_store(["000001"], "2024-01-01", "2024-01-31")
         if not is_live:
             assert "000001" in result
-            assert result["000001"].exists()
+            assert isinstance(result["000001"], str)
 
 
 class TestParallel:
@@ -400,7 +396,7 @@ class TestGetStats:
         s._source = None
         stats = s.get_stats()
         assert stats["source_connected"] is False
-        assert "cache" in stats
+        assert "tables" in stats
 
     def test_get_stats_with_source(self, svc):
         s, source, is_live = svc

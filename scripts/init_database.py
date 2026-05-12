@@ -22,10 +22,8 @@ def init_database():
     
     print(f"初始化数据库: {db_path}")
     
-    # 确保数据目录存在
-    data_dir = Path(settings.database.parquet_dir)
+    # 确保缓存目录存在
     cache_dir = Path(settings.database.cache_dir)
-    data_dir.mkdir(parents=True, exist_ok=True)
     cache_dir.mkdir(parents=True, exist_ok=True)
     
     import duckdb
@@ -222,11 +220,99 @@ def init_database():
         record_count INTEGER DEFAULT 0,
         start_date DATE,
         end_date DATE,
-        parquet_path TEXT,
+        storage_key TEXT,
         file_size_bytes INTEGER,
         error_message TEXT,
         import_duration_ms INTEGER,
         imported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+
+    # ---- 数据存储表（DuckDB 替代 Parquet） ----
+    print("创建数据存储表...")
+
+    conn.execute("""
+    CREATE TABLE IF NOT EXISTS kline (
+        symbol       VARCHAR NOT NULL,
+        trade_date   DATE NOT NULL,
+        period       VARCHAR NOT NULL DEFAULT '1d',
+        dividend     VARCHAR NOT NULL DEFAULT 'none',
+        open         DOUBLE,
+        high         DOUBLE,
+        low          DOUBLE,
+        close        DOUBLE,
+        volume       BIGINT,
+        amount       DOUBLE,
+        PRIMARY KEY (symbol, trade_date, period, dividend)
+    )
+    """)
+
+    conn.execute("""
+    CREATE TABLE IF NOT EXISTS tick (
+        symbol       VARCHAR NOT NULL,
+        trade_date   DATE NOT NULL,
+        trade_time   TIMESTAMP NOT NULL,
+        price        DOUBLE,
+        volume       BIGINT,
+        amount       DOUBLE,
+        direction    VARCHAR,
+        PRIMARY KEY (symbol, trade_date, trade_time)
+    )
+    """)
+
+    conn.execute("""
+    CREATE TABLE IF NOT EXISTS financial (
+        symbol       VARCHAR NOT NULL,
+        report_date  DATE NOT NULL,
+        data         JSON,
+        PRIMARY KEY (symbol, report_date)
+    )
+    """)
+
+    conn.execute("""
+    CREATE TABLE IF NOT EXISTS f10 (
+        symbol       VARCHAR NOT NULL,
+        section      VARCHAR NOT NULL,
+        data         JSON,
+        updated_at   TIMESTAMP,
+        PRIMARY KEY (symbol, section)
+    )
+    """)
+
+    conn.execute("""
+    CREATE TABLE IF NOT EXISTS factor (
+        symbol       VARCHAR NOT NULL,
+        trade_date   DATE NOT NULL,
+        adjust       VARCHAR NOT NULL DEFAULT 'qfq',
+        factor       DOUBLE NOT NULL,
+        PRIMARY KEY (symbol, adjust, trade_date)
+    )
+    """)
+
+    conn.execute("""
+    CREATE TABLE IF NOT EXISTS basic (
+        symbol       VARCHAR NOT NULL,
+        ex_date      DATE NOT NULL,
+        dividend     DOUBLE,
+        allotment    DOUBLE,
+        data         JSON,
+        PRIMARY KEY (symbol, ex_date)
+    )
+    """)
+
+    conn.execute("""
+    CREATE TABLE IF NOT EXISTS realtime (
+        symbol       VARCHAR NOT NULL PRIMARY KEY,
+        price        DOUBLE,
+        change       DOUBLE,
+        change_pct   DOUBLE,
+        open         DOUBLE,
+        high         DOUBLE,
+        low          DOUBLE,
+        prev_close   DOUBLE,
+        volume       BIGINT,
+        amount       DOUBLE,
+        updated_at   TIMESTAMP
     )
     """)
     
@@ -283,6 +369,15 @@ def init_database():
     # 数据导入记录表索引
     conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_data_imports_symbol_type ON data_imports(symbol, data_type)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_data_imports_imported_at ON data_imports(imported_at)")
+
+    # 数据存储表索引
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_kline_symbol ON kline(symbol)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_kline_trade_date ON kline(trade_date)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_tick_symbol_date ON tick(symbol, trade_date)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_financial_symbol ON financial(symbol)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_f10_symbol ON f10(symbol)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_factor_symbol ON factor(symbol)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_basic_symbol ON basic(symbol)")
     
     # 插入默认数据
     print("插入默认数据...")
@@ -466,7 +561,6 @@ def init_database():
     
     print("=" * 50)
     print(f"数据库文件: {db_path}")
-    print(f"数据目录: {data_dir}")
     print(f"缓存目录: {cache_dir}")
     print("\n默认管理员账户:")
     print("  用户名: admin")

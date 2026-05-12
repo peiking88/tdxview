@@ -1,5 +1,5 @@
 """
-Unit tests for Config component, Data Management helpers, and CacheManager stats.
+Unit tests for Config component, Data Management helpers, and storage stats.
 """
 
 import tempfile
@@ -8,8 +8,6 @@ from unittest.mock import MagicMock, patch
 
 import pandas as pd
 import pytest
-
-from app.data.cache import MemoryCache, DiskCache, CacheManager
 
 
 # ===========================================================================
@@ -102,63 +100,54 @@ class TestLogViewer:
 class TestDataManagementHelpers:
     """Test data management component functions (non-Streamlit parts)."""
 
-    def test_parquet_list_symbols(self, tmp_path):
-        """Test that ParquetManager can list saved symbols."""
-        from app.data.parquet_manager import ParquetManager
+    def test_store_list_symbols(self, tmp_path):
+        """Test that DuckDBStore can list saved symbols."""
+        from app.data.database import DatabaseManager
+        from app.data.duckdb_store import DuckDBStore
 
-        pm = ParquetManager(parquet_dir=str(tmp_path / "pq"))
-        df = pd.DataFrame({"close": [1.0, 2.0], "volume": [100, 200]})
-        pm.save(df, "000001", "2026-01")
-
-        import pyarrow.parquet as pq
-        pq_files = list(Path(tmp_path / "pq").rglob("*.parquet"))
-        symbols = [p.stem for p in pq_files]
+        db = DatabaseManager(db_path=str(tmp_path / "test.duckdb"))
+        store = DuckDBStore(db)
+        df = pd.DataFrame({
+            "date": ["2026-01-02"], "open": [1.0], "high": [1.5],
+            "low": [0.8], "close": [1.2], "volume": [100], "amount": [120.0],
+        })
+        store.save(df, "000001", data_type="history")
+        symbols = store.list_symbols(data_type="history")
         assert "000001" in symbols
+        db.close()
 
-    def test_parquet_load_roundtrip(self, tmp_path):
-        """Test ParquetManager save and load roundtrip."""
-        from app.data.parquet_manager import ParquetManager
+    def test_store_load_roundtrip(self, tmp_path):
+        """Test DuckDBStore save and load roundtrip."""
+        from app.data.database import DatabaseManager
+        from app.data.duckdb_store import DuckDBStore
 
-        pm = ParquetManager(parquet_dir=str(tmp_path / "pq"))
-        df = pd.DataFrame({"close": [1.0, 2.0, 3.0], "volume": [100, 200, 300]})
-        pm.save(df, "600519", "2026-01")
-
-        loaded = pm.load("600519", "2026-01")
+        db = DatabaseManager(db_path=str(tmp_path / "test.duckdb"))
+        store = DuckDBStore(db)
+        df = pd.DataFrame({
+            "date": ["2026-01-02", "2026-01-03", "2026-01-04"],
+            "open": [1.0, 2.0, 3.0], "high": [1.5, 2.5, 3.5],
+            "low": [0.8, 1.8, 2.8], "close": [1.2, 2.3, 3.4],
+            "volume": [100, 200, 300], "amount": [120.0, 460.0, 1020.0],
+        })
+        store.save(df, "600519", data_type="history")
+        loaded = store.load("600519", data_type="history")
         assert loaded is not None
         assert len(loaded) == 3
-        assert list(loaded["close"]) == [1.0, 2.0, 3.0]
+        assert list(loaded["close"]) == [1.2, 2.3, 3.4]
+        db.close()
 
-    def test_parquet_delete(self, tmp_path):
-        """Test ParquetManager delete."""
-        from app.data.parquet_manager import ParquetManager
+    def test_store_delete(self, tmp_path):
+        """Test DuckDBStore delete."""
+        from app.data.database import DatabaseManager
+        from app.data.duckdb_store import DuckDBStore
 
-        pm = ParquetManager(parquet_dir=str(tmp_path / "pq"))
-        df = pd.DataFrame({"close": [1.0]})
-        pm.save(df, "000002", "2026-02")
-        pm.delete("000002", "2026-02")
-        assert pm.load("000002", "2026-02") is None
-
-
-# ===========================================================================
-# CacheManager integration (Phase 5 cache stats in config)
-# ===========================================================================
-
-class TestCacheManagerStats:
-    """Test CacheManager statistics used by config component."""
-
-    def test_memory_count(self):
-        cm = CacheManager()
-        cm.memory.set("k1", "v1")
-        cm.memory.set("k2", "v2")
-        assert cm.memory.count == 2
-
-    def test_memory_size(self):
-        cm = CacheManager()
-        cm.memory.set("k1", "a" * 1000, size=1000)
-        assert cm.memory.size >= 1000
-
-    def test_clear_all(self):
-        cm = CacheManager()
-        cm.memory.set("k1", "v1")
-        cm.clear()
-        assert cm.memory.count == 0
+        db = DatabaseManager(db_path=str(tmp_path / "test.duckdb"))
+        store = DuckDBStore(db)
+        df = pd.DataFrame({
+            "date": ["2026-01-02"], "open": [1.0], "high": [1.5],
+            "low": [0.8], "close": [1.2], "volume": [100], "amount": [120.0],
+        })
+        store.save(df, "000002", data_type="history")
+        store.delete("000002", data_type="history")
+        assert store.load("000002", data_type="history") is None
+        db.close()

@@ -9,7 +9,7 @@ A stock market data visualization platform built on [tdxdata](https://github.com
 | Language            | Python 3.13                  |
 | Web UI              | Streamlit                    |
 | Database            | DuckDB                       |
-| Time-series Storage | Parquet                      |
+| Time-series Storage | DuckDB (7 tables)            |
 | Charting            | Plotly                       |
 | Validation          | Pydantic / pydantic-settings |
 | Logging             | Loguru                       |
@@ -28,7 +28,7 @@ A stock market data visualization platform built on [tdxdata](https://github.com
 │  backup · retention · plugin                     │
 ├─────────────────────────────────────────────────┤
 │                    Data                          │
-│  DuckDB · Parquet · Cache (LRU + Disk)           │
+│  DuckDB · DuckDBStore (7 tables)                │
 │  tdxdata source (remote / local / hybrid)        │
 └─────────────────────────────────────────────────┘
 ```
@@ -39,9 +39,9 @@ A stock market data visualization platform built on [tdxdata](https://github.com
 - **Historical Charts**: K-line (candlestick), line, bar, heatmap with MA overlays
 - **Real-time Monitoring**: Live quotes dashboard with configurable watchlists
 - **Technical Indicators**: SMA, EMA, MACD, RSI, RPS, Bollinger Bands, OBV, VWAP + custom plugin indicators
-- **Data Management**: 全类型数据导入（history/realtime/tick/financial/F10/basic）、增量导入、完整重导、导入状态跟踪、Parquet 数据浏览
-- **System Configuration**: Data source management, cache settings, user preferences
-- **Data Retention**: Archive/purge old Parquet files, cleanup expired cache and logs
+- **Data Management**: 全类型数据导入（history/realtime/tick/financial/F10/basic）、增量导入、完整重导、导入状态跟踪
+- **System Configuration**: Data source management, storage stats, user preferences
+- **Data Retention**: Purge old data from DuckDB, cleanup system logs
 - **Backup & Restore**: Timestamped tar.gz backups with integrity verification
 - **Plugin Hot-Reload**: Dynamic indicator script loading with file-hash change detection
 - **Performance**: Parallel multi-symbol fetching, data downsampling, in-place chart updates
@@ -132,9 +132,8 @@ app/
 ├── config/
 │   └── settings.py      # Pydantic settings (config.yaml)
 ├── data/
-│   ├── cache.py         # MemoryCache (LRU+TTL) + DiskCache + CacheManager
 │   ├── database.py      # DuckDB manager
-│   ├── parquet_manager.py
+│   ├── duckdb_store.py  # DuckDBStore (7 tables, replaces ParquetManager)
 │   ├── models/          # Pydantic data models
 │   └── sources/
 │       ├── base_source.py
@@ -163,7 +162,7 @@ output/                  # 输出文件目录
 plugins/indicators/      # Custom indicator scripts
 scripts/init_database.py # Database initialization
 scripts/setup_dev.sh     # One-click setup/run/test script
-tests/                   # Test suite (355 passed, dual-mode architecture)
+tests/                   # Test suite (411 passed, dual-mode architecture)
 tests/e2e/               # E2E UI tests with Playwright (46 passed)
 ```
 
@@ -187,8 +186,8 @@ TDX_LIVE=1 pytest tests/ -q
 
 **Test Coverage Status**:
 
-- **Total tests**: 438 passed, 0 skipped (TDX_LIVE=1)
-- **Core business code coverage**: 87.61%
+- **Total tests**: 411 passed (337 unit + 74 integration)
+- **Core business code coverage**: 85.97%
 - **Coverage configuration**: Excludes UI components (`app/components/*`), third-party adapters (`tdxdata_source.py`), and main entry point (`main.py`)
 - **Test categories**: Unit tests for services, data layer, utilities, and integration tests
 - **Quality gates**: 80% minimum coverage required (configured in pyproject.toml)

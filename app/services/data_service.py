@@ -1,15 +1,14 @@
 """
-Data service — orchestrates data fetching, caching, storage, and source management.
+Data service — orchestrates data fetching, DuckDB storage, and source management.
 
 This is the primary business-logic layer that Streamlit components and other
 services call. It coordinates:
-  1. Cache lookup (memory → disk)
-  2. DuckDB metadata queries
-  3. Parquet file reads/writes
-  4. Remote data fetching via TdxDataSource
+  1. DuckDBStore lookup (local persistent storage)
+  2. Remote data fetching via TdxDataSource (on miss)
 """
 
 import json
+import os
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
@@ -19,10 +18,9 @@ from typing import Any, Dict, List, Optional, Tuple
 import pandas as pd
 
 from app.config.settings import get_settings
-from app.data.cache import CacheManager, generate_cache_key
 from app.data.database import DatabaseManager
+from app.data.duckdb_store import DuckDBStore
 from app.data.models.import_record import DataType, ImportRecordModel, ImportStatus
-from app.data.parquet_manager import ParquetManager
 from app.data.sources.tdxdata_source import TdxDataSource
 
 
@@ -31,9 +29,8 @@ class DataService:
 
     def __init__(self):
         settings = get_settings()
-        self._cache = CacheManager()
         self._db = DatabaseManager()
-        self._parquet = ParquetManager()
+        self._store = DuckDBStore(self._db)
         self._source: Optional[TdxDataSource] = None
         self._source_config = {
             "timeout": settings.tdxdata.timeout,
@@ -46,6 +43,10 @@ class DataService:
         if self._source is None:
             self._source = TdxDataSource(timeout=self._source_config["timeout"])
         return self._source
+
+    @staticmethod
+    def _map_dividend_type(dividend_type: str) -> str:
+        return {"front": "qfq", "back": "hfq", "none": "none"}.get(dividend_type, "none")
 
     # ------------------------------------------------------------------
     # Data quality: cleaning & continuity
@@ -180,21 +181,6 @@ class DataService:
         return report
 
     # ------------------------------------------------------------------
-    # TTL mapping
-    # ------------------------------------------------------------------
-
-    @staticmethod
-    def _ttl_for_type(data_type: str) -> int:
-        return {
-            "history": 3600,
-            "realtime": 60,
-            "tick": 300,
-            "financial": 3600,
-            "f10": 3600,
-            "basic": 3600,
-        }.get(data_type, 300)
-
-    # ------------------------------------------------------------------
     # Historical kline
     # ------------------------------------------------------------------
 
@@ -207,22 +193,29 @@ class DataService:
         dividend_type: str = "front",
         use_cache: bool = True,
     ) -> pd.DataFrame:
-        """Get historical kline data, checking cache first."""
-        cache_key = generate_cache_key("history", {
-            "symbols": sorted(symbols),
-            "start": start_date,
-            "end": end_date,
-            "period": period,
-            "dividend": dividend_type,
-        })
+        """Get historical kline data, checking DuckDB first."""
+        dividend = self._map_dividend_type(dividend_type)
 
-        if use_cache:
-            cached = self._cache.get(cache_key)
-            if cached is not None:
-                return pd.DataFrame(cached)
+        # Try loading each symbol from DuckDB
+        stored_parts = []
+        missing_symbols = []
+        for symbol in symbols:
+            stored = self._store.load(
+                symbol, data_type="history", period=period,
+                dividend=dividend, start_date=start_date, end_date=end_date,
+            )
+            if stored is not None and not stored.empty:
+                stored["stock_code"] = symbol
+                stored_parts.append(stored)
+            else:
+                missing_symbols.append(symbol)
 
+        if not missing_symbols:
+            return pd.concat(stored_parts, ignore_index=True) if stored_parts else pd.DataFrame()
+
+        # Fetch missing symbols from source
         df = self.source.fetch_history(
-            stock_list=symbols,
+            stock_list=missing_symbols,
             start_date=start_date,
             end_date=end_date,
             period=period,
@@ -231,9 +224,26 @@ class DataService:
 
         df = self._clean_kline_data(df)
 
-        if use_cache and not df.empty:
-            self._cache.set(cache_key, json.loads(df.to_json(orient="columns", date_format="iso")))
+        # Save each symbol to DuckDB
+        if not df.empty:
+            if "stock_code" in df.columns:
+                for symbol, group in df.groupby("stock_code"):
+                    self._store.save(
+                        group, str(symbol), data_type="history",
+                        period=period, dividend=dividend,
+                    )
+            else:
+                symbol = missing_symbols[0] if len(missing_symbols) == 1 else "multi"
+                self._store.save(
+                    df, symbol, data_type="history",
+                    period=period, dividend=dividend,
+                )
 
+        # Merge stored + fetched results
+        if stored_parts and not df.empty:
+            return pd.concat(stored_parts + [df], ignore_index=True)
+        if stored_parts:
+            return pd.concat(stored_parts, ignore_index=True)
         return df
 
     # ------------------------------------------------------------------
@@ -246,20 +256,48 @@ class DataService:
         use_cache: bool = True,
         cache_ttl: int = 60,
     ) -> pd.DataFrame:
-        """Get realtime quotes. Short TTL by default (60s)."""
-        cache_key = generate_cache_key("realtime", {"symbols": sorted(stock_list)})
+        """Get realtime quotes. Returns from DuckDB if fresh enough."""
+        fresh_parts = []
+        stale_symbols = []
 
-        if use_cache:
-            cached = self._cache.get(cache_key)
-            if cached is not None:
-                return pd.DataFrame(cached)
+        for symbol in stock_list:
+            stored = self._store.load(symbol, data_type="realtime")
+            if stored is not None and not stored.empty:
+                # Check freshness via updated_at
+                updated_at = stored.get("updated_at")
+                if updated_at is not None and len(updated_at) > 0:
+                    try:
+                        updated = pd.to_datetime(updated_at.iloc[0])
+                        if (datetime.now() - updated.to_pydatetime()).total_seconds() < cache_ttl:
+                            fresh_parts.append(stored)
+                            continue
+                    except (ValueError, TypeError):
+                        pass
+            stale_symbols.append(symbol)
 
-        df = self.source.fetch_realtime(stock_list=stock_list)
+        if not stale_symbols:
+            return pd.concat(fresh_parts, ignore_index=True) if fresh_parts else pd.DataFrame()
 
-        if use_cache and not df.empty:
+        # Fetch stale/missing symbols
+        df = self.source.fetch_realtime(stock_list=stale_symbols)
+
+        if not df.empty:
             df = df.loc[:, ~df.columns.duplicated()]
-            self._cache.set(cache_key, json.loads(df.to_json(orient="columns", date_format="iso")), ttl=cache_ttl)
+            # Save each symbol
+            if "stock_code" in df.columns:
+                for _, row in df.iterrows():
+                    sym = row.get("stock_code") or row.get("symbol") or row.get("code")
+                    if sym:
+                        single = pd.DataFrame([row])
+                        self._store.save(single, str(sym), data_type="realtime")
+            else:
+                for symbol in stale_symbols:
+                    self._store.save(df, symbol, data_type="realtime")
 
+        if fresh_parts and not df.empty:
+            return pd.concat(fresh_parts + [df], ignore_index=True)
+        if fresh_parts:
+            return pd.concat(fresh_parts, ignore_index=True)
         return df
 
     # ------------------------------------------------------------------
@@ -273,50 +311,37 @@ class DataService:
         use_cache: bool = True,
     ) -> pd.DataFrame:
         """Get tick-by-tick data for a single stock."""
-        cache_key = generate_cache_key("tick", {
-            "code": stock_code,
-            "date": date or "latest",
-        })
-
-        if use_cache:
-            cached = self._cache.get(cache_key)
-            if cached is not None:
-                return pd.DataFrame(cached)
+        stored = self._store.load(stock_code, date=date, data_type="tick")
+        if stored is not None and not stored.empty:
+            return stored
 
         df = self.source.fetch_tick(stock_code=stock_code, date=date)
 
-        if use_cache and not df.empty:
-            self._cache.set(cache_key, json.loads(df.to_json(orient="columns", date_format="iso")), ttl=300)
+        if not df.empty:
+            self._store.save(df, stock_code, date=date, data_type="tick")
 
         return df
 
     # ------------------------------------------------------------------
-    # Financial data (with cache)
+    # Financial data
     # ------------------------------------------------------------------
 
     def get_financial(self, stock_code: str, use_cache: bool = True) -> pd.DataFrame:
-        """Get financial statements, with cache."""
-        cache_key = generate_cache_key("financial", {"code": stock_code})
-
-        if use_cache:
-            cached = self._cache.get(cache_key)
-            if cached is not None:
-                return pd.DataFrame(cached)
+        """Get financial statements."""
+        stored = self._store.load(stock_code, data_type="financial")
+        if stored is not None and not stored.empty:
+            return stored
 
         df = self.source.fetch_financial(stock_code=stock_code)
 
-        if use_cache and not df.empty:
+        if not df.empty:
             df = df.loc[:, ~df.columns.duplicated()]
-            self._cache.set(
-                cache_key,
-                json.loads(df.to_json(orient="columns", date_format="iso")),
-                ttl=self._ttl_for_type("financial"),
-            )
+            self._store.save(df, stock_code, data_type="financial")
 
         return df
 
     # ------------------------------------------------------------------
-    # F10 data (with cache)
+    # F10 data
     # ------------------------------------------------------------------
 
     def get_f10(
@@ -325,30 +350,37 @@ class DataService:
         sections: Optional[List[str]] = None,
         use_cache: bool = True,
     ) -> Dict[str, pd.DataFrame]:
-        """Get F10 company information, with cache."""
-        cache_key = generate_cache_key("f10", {
-            "code": stock_code,
-            "sections": sorted(sections) if sections else [],
-        })
-
-        if use_cache:
-            cached = self._cache.get(cache_key)
-            if cached is not None:
-                return {k: pd.DataFrame(v) for k, v in cached.items()}
+        """Get F10 company information."""
+        stored = self._store.load(stock_code, data_type="f10")
+        if stored is not None and not stored.empty:
+            result = {}
+            if "section" in stored.columns:
+                for section, group in stored.groupby("section"):
+                    result[str(section)] = group.drop(columns=["section"]).reset_index(drop=True)
+            else:
+                result["default"] = stored
+            # Filter by requested sections
+            if sections:
+                result = {k: v for k, v in result.items() if k in sections}
+            return result if result else {}
 
         result = self.source.fetch_f10(stock_code=stock_code, sections=sections)
 
-        if use_cache and result:
-            serialized = {
-                k: json.loads(v.to_json(orient="columns", date_format="iso"))
-                for k, v in result.items()
-            }
-            self._cache.set(cache_key, serialized, ttl=self._ttl_for_type("f10"))
+        if result:
+            frames = []
+            for section, df in result.items():
+                if isinstance(df, pd.DataFrame) and not df.empty:
+                    df = df.copy()
+                    df.insert(0, "section", section)
+                    frames.append(df)
+            if frames:
+                combined = pd.concat(frames, ignore_index=True)
+                self._store.save(combined, stock_code, data_type="f10")
 
         return result
 
     # ------------------------------------------------------------------
-    # Basic / ex-rights data (with cache)
+    # Basic / ex-rights data
     # ------------------------------------------------------------------
 
     def get_basic(
@@ -357,23 +389,16 @@ class DataService:
         date: Optional[str] = None,
         use_cache: bool = True,
     ) -> pd.DataFrame:
-        """Get ex-rights/ex-dividend data, with cache."""
-        cache_key = generate_cache_key("basic", {"code": stock_code, "date": date or "latest"})
-
-        if use_cache:
-            cached = self._cache.get(cache_key)
-            if cached is not None:
-                return pd.DataFrame(cached)
+        """Get ex-rights/ex-dividend data."""
+        stored = self._store.load(stock_code, date=date, data_type="basic")
+        if stored is not None and not stored.empty:
+            return stored
 
         df = self.source.fetch_basic(stock_code=stock_code, date=date)
 
-        if use_cache and not df.empty:
+        if not df.empty:
             df = df.loc[:, ~df.columns.duplicated()]
-            self._cache.set(
-                cache_key,
-                json.loads(df.to_json(orient="columns", date_format="iso")),
-                ttl=self._ttl_for_type("basic"),
-            )
+            self._store.save(df, stock_code, date=date, data_type="basic")
 
         return df
 
@@ -388,27 +413,20 @@ class DataService:
         Args:
             stock_code: stock code, e.g. "600519"
             adjust: "qfq" (前复权), "hfq" (后复权)
-            use_cache: whether to use cache
+            use_cache: whether to use local storage
 
         Returns:
             DataFrame with factor data.
         """
-        cache_key = generate_cache_key("factor", {"code": stock_code, "adjust": adjust})
-
-        if use_cache:
-            cached = self._cache.get(cache_key)
-            if cached is not None:
-                return pd.DataFrame(cached)
+        stored = self._store.load(stock_code, data_type="factor", dividend=adjust)
+        if stored is not None and not stored.empty:
+            return stored
 
         df = self.source.fetch_factor(stock_code=stock_code, adjust=adjust)
 
-        if use_cache and not df.empty:
+        if not df.empty:
             df = df.loc[:, ~df.columns.duplicated()]
-            self._cache.set(
-                cache_key,
-                json.loads(df.to_json(orient="columns", date_format="iso")),
-                ttl=self._ttl_for_type("basic"),
-            )
+            self._store.save(df, stock_code, data_type="factor", dividend=adjust)
 
         return df
 
@@ -541,27 +559,43 @@ class DataService:
         return True
 
     # ------------------------------------------------------------------
-    # Data storage to Parquet
+    # Data storage
     # ------------------------------------------------------------------
 
-    def save_to_parquet(
+    def save_to_store(
         self,
         df: pd.DataFrame,
         symbol: str,
         date: Optional[str] = None,
         data_type: str = "history",
-    ) -> Path:
-        """Save a DataFrame to Parquet storage."""
-        return self._parquet.save(df, symbol, date=date, data_type=data_type)
+        period: Optional[str] = None,
+        dividend: Optional[str] = None,
+    ) -> str:
+        """Save a DataFrame to DuckDB storage. Returns storage key."""
+        return self._store.save(df, symbol, date=date, data_type=data_type,
+                                period=period, dividend=dividend)
 
-    def load_from_parquet(
+    def load_from_store(
         self,
         symbol: str,
         date: Optional[str] = None,
         data_type: str = "history",
+        period: Optional[str] = None,
+        dividend: Optional[str] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
     ) -> Optional[pd.DataFrame]:
-        """Load a DataFrame from Parquet storage."""
-        return self._parquet.load(symbol, date=date, data_type=data_type)
+        """Load a DataFrame from DuckDB storage."""
+        return self._store.load(symbol, date=date, data_type=data_type,
+                                period=period, dividend=dividend,
+                                start_date=start_date, end_date=end_date)
+
+    # Backward-compatible aliases
+    def save_to_parquet(self, df, symbol, date=None, data_type="history"):
+        return self.save_to_store(df, symbol, date=date, data_type=data_type)
+
+    def load_from_parquet(self, symbol, date=None, data_type="history"):
+        return self.load_from_store(symbol, date=date, data_type=data_type)
 
     # ------------------------------------------------------------------
     # Fetch & store workflow
@@ -574,31 +608,40 @@ class DataService:
         end_date: str,
         period: str = "1d",
         dividend_type: str = "front",
-    ) -> Dict[str, Path]:
-        """Fetch historical data and save each symbol to Parquet.
+    ) -> Dict[str, str]:
+        """Fetch historical data and save each symbol to DuckDB.
 
-        Returns a mapping of symbol → Parquet file path.
+        Returns a mapping of symbol → storage key.
         """
-        df = self.get_history(
-            symbols=symbols,
+        dividend = self._map_dividend_type(dividend_type)
+        df = self.source.fetch_history(
+            stock_list=symbols,
             start_date=start_date,
             end_date=end_date,
             period=period,
             dividend_type=dividend_type,
-            use_cache=False,
         )
+
+        df = self._clean_kline_data(df)
+
         if df.empty:
             return {}
 
         results = {}
         if "stock_code" in df.columns:
             for symbol, group in df.groupby("stock_code"):
-                path = self._parquet.save(group, str(symbol), start_date[:7], data_type="history")
-                results[str(symbol)] = path
+                key = self._store.save(
+                    group, str(symbol), start_date[:7], data_type="history",
+                    period=period, dividend=dividend,
+                )
+                results[str(symbol)] = key
         else:
             symbol = symbols[0] if len(symbols) == 1 else "multi"
-            path = self._parquet.save(df, symbol, start_date[:7], data_type="history")
-            results[symbol] = path
+            key = self._store.save(
+                df, symbol, start_date[:7], data_type="history",
+                period=period, dividend=dividend,
+            )
+            results[symbol] = key
 
         return results
 
@@ -644,7 +687,7 @@ class DataService:
         data_type: str,
         **kwargs: Any,
     ) -> ImportRecordModel:
-        """Import data: fetch → save Parquet → write cache → upsert record."""
+        """Import data: fetch → save to DuckDB → upsert record."""
         start_time = time.time()
         record = ImportRecordModel(symbol=symbol, data_type=DataType(data_type))
 
@@ -653,7 +696,6 @@ class DataService:
 
             # Handle F10 which returns dict of DataFrames
             if data_type == "f10" and isinstance(data, dict):
-                # Merge all F10 sections into one DataFrame for storage
                 frames = []
                 for section, df in data.items():
                     if isinstance(df, pd.DataFrame) and not df.empty:
@@ -666,36 +708,16 @@ class DataService:
                     combined = pd.DataFrame()
 
                 if not combined.empty:
-                    path = self._parquet.save(combined, symbol, data_type="f10")
-                    record.parquet_path = str(path)
+                    key = self._store.save(combined, symbol, data_type="f10")
+                    record.storage_key = key
                     record.record_count = len(combined)
-                    record.file_size_bytes = path.stat().st_size
-
-                # Cache the original dict form
-                serialized = {
-                    k: json.loads(v.to_json(orient="columns", date_format="iso"))
-                    for k, v in data.items() if isinstance(v, pd.DataFrame)
-                }
-                cache_key = generate_cache_key("f10", {
-                    "code": symbol,
-                    "sections": sorted(kwargs.get("sections", [])),
-                })
-                self._cache.set(cache_key, serialized, ttl=self._ttl_for_type("f10"))
 
             elif isinstance(data, pd.DataFrame):
                 if not data.empty:
                     date_partition = kwargs.get("date") or kwargs.get("start_date", "")[:7] or None
-                    path = self._parquet.save(data, symbol, date=date_partition, data_type=data_type)
-                    record.parquet_path = str(path)
+                    key = self._store.save(data, symbol, date=date_partition, data_type=data_type)
+                    record.storage_key = key
                     record.record_count = len(data)
-                    record.file_size_bytes = path.stat().st_size
-
-                    cache_key = generate_cache_key(data_type, self._cache_params(symbol, data_type, **kwargs))
-                    self._cache.set(
-                        cache_key,
-                        json.loads(data.to_json(orient="columns", date_format="iso")),
-                        ttl=self._ttl_for_type(data_type),
-                    )
 
                 # Extract date range for history/tick
                 if data_type in ("history", "tick") and not data.empty and "date" in data.columns:
@@ -719,28 +741,6 @@ class DataService:
 
         return record
 
-    @staticmethod
-    def _cache_params(symbol: str, data_type: str, **kwargs: Any) -> dict:
-        """Build cache key params for a data type."""
-        if data_type == "history":
-            return {
-                "symbols": [symbol],
-                "start": kwargs.get("start_date", ""),
-                "end": kwargs.get("end_date", ""),
-                "period": kwargs.get("period", "1d"),
-                "dividend": kwargs.get("dividend_type", "front"),
-            }
-        elif data_type == "tick":
-            return {"code": symbol, "date": kwargs.get("date", "latest")}
-        elif data_type == "realtime":
-            return {"symbols": [symbol]}
-        elif data_type == "financial":
-            return {"code": symbol}
-        elif data_type == "basic":
-            return {"code": symbol, "date": kwargs.get("date", "latest")}
-        else:
-            return {"symbol": symbol}
-
     # ------------------------------------------------------------------
     # Import record persistence
     # ------------------------------------------------------------------
@@ -750,7 +750,7 @@ class DataService:
         self._db.execute(
             """INSERT OR REPLACE INTO data_imports
                (symbol, data_type, status, record_count, start_date, end_date,
-                parquet_path, file_size_bytes, error_message, import_duration_ms, imported_at)
+                storage_key, file_size_bytes, error_message, import_duration_ms, imported_at)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             [
                 record.symbol,
@@ -759,7 +759,7 @@ class DataService:
                 record.record_count,
                 record.start_date,
                 record.end_date,
-                record.parquet_path,
+                record.storage_key,
                 record.file_size_bytes,
                 record.error_message,
                 record.import_duration_ms,
@@ -786,7 +786,7 @@ class DataService:
         where = f" WHERE {' AND '.join(conditions)}" if conditions else ""
         rows = self._db.fetch_all(
             f"SELECT symbol, data_type, status, record_count, start_date, end_date, "
-            f"parquet_path, file_size_bytes, error_message, import_duration_ms, imported_at "
+            f"storage_key, file_size_bytes, error_message, import_duration_ms, imported_at "
             f"FROM data_imports{where} ORDER BY imported_at DESC",
             params,
         )
@@ -800,7 +800,7 @@ class DataService:
         """Get the latest import record for a symbol and data type."""
         rows = self._db.fetch_all(
             "SELECT symbol, data_type, status, record_count, start_date, end_date, "
-            "parquet_path, file_size_bytes, error_message, import_duration_ms, imported_at "
+            "storage_key, file_size_bytes, error_message, import_duration_ms, imported_at "
             "FROM data_imports WHERE symbol = ? AND data_type = ?",
             [symbol, data_type],
         )
@@ -818,7 +818,7 @@ class DataService:
             record_count=r[3],
             start_date=str(r[4]) if r[4] is not None else None,
             end_date=str(r[5]) if r[5] is not None else None,
-            parquet_path=r[6],
+            storage_key=r[6],
             file_size_bytes=r[7],
             error_message=r[8],
             import_duration_ms=r[9],
@@ -865,8 +865,8 @@ class DataService:
         data_type: str,
         **kwargs: Any,
     ) -> ImportRecordModel:
-        """Re-import: clear Parquet + record, then full import."""
-        self._parquet.delete(symbol, data_type=data_type)
+        """Re-import: clear stored data + record, then full import."""
+        self._store.delete(symbol, data_type=data_type)
         self._db.execute(
             "DELETE FROM data_imports WHERE symbol = ? AND data_type = ?",
             [symbol, data_type],
@@ -960,7 +960,7 @@ class DataService:
     ) -> Dict[str, Path]:
         """Fetch and store data for multiple symbols in parallel.
 
-        Returns a dict mapping symbol → Parquet file path.
+        Returns a dict mapping symbol → storage key.
         """
         all_results: Dict[str, Path] = {}
 
@@ -1011,11 +1011,21 @@ class DataService:
 
     def get_stats(self) -> Dict[str, Any]:
         """Return runtime statistics about the data service."""
-        cache_stats = {
-            "memory_count": self._cache.memory.count,
-            "memory_size": self._cache.memory.size,
-        }
-        return {
-            "source_connected": self._source is not None,
-            "cache": cache_stats,
-        }
+        stats = {"source_connected": self._source is not None, "tables": {}}
+        for table in ["kline", "tick", "financial", "f10", "factor", "basic", "realtime"]:
+            try:
+                row = self._db.fetch_one(f"SELECT count(*) FROM {table}")
+                stats["tables"][table] = row[0] if row else 0
+            except Exception:
+                stats["tables"][table] = 0
+
+        # DB file size
+        try:
+            settings = get_settings()
+            db_path = Path(settings.database.duckdb_path)
+            if db_path.exists():
+                stats["db_size_bytes"] = db_path.stat().st_size
+        except Exception:
+            pass
+
+        return stats

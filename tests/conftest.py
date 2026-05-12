@@ -27,12 +27,9 @@ _SETTINGS_PATCH_TARGETS = [
     "app.services.retention_service.get_settings",
     "app.services.backup_service.get_settings",
     "app.services.plugin_service.get_settings",
-    "app.services.indicator_service.get_settings",
     "app.services.visualization_service.get_settings",
     "app.services.user_service.get_settings",
-    "app.data.cache.get_settings",
     "app.data.database.get_settings",
-    "app.data.parquet_manager.get_settings",
     "app.data.sources.tdxdata_source.get_settings",
     "app.components.dashboard.get_settings",
     "app.components.config.get_settings",
@@ -50,8 +47,6 @@ def test_settings(tmp_path_factory):
     tmp = tmp_path_factory.mktemp("tdxview_test")
     settings = Settings()
     settings.database.duckdb_path = str(tmp / "test.duckdb")
-    settings.database.parquet_dir = str(tmp / "parquet")
-    settings.database.cache_dir = str(tmp / "cache")
     settings.indicators.custom_path = str(tmp / "custom_indicators")
     settings.logging.file_path = str(tmp / "log" / "test.log")
     return settings
@@ -135,6 +130,7 @@ def _create_mock_source():
         "volume":  [1_500_000, 750_000],
     })
     src.fetch_tick.return_value = pd.DataFrame({
+        "date": ["2024-01-15", "2024-01-15", "2024-01-15"],
         "price": [15.0, 15.01, 15.02],
         "volume": [100, 200, 150],
     })

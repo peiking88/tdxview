@@ -1,13 +1,11 @@
 """
-Backup service — automated backup and restore for DuckDB, Parquet, and config.
+Backup service — automated backup and restore for DuckDB and config.
 
-Creates timestamped snapshots of critical data and supports restoring
-from any saved backup.
+Creates timestamped snapshots of the DuckDB database file and config,
+supports restoring from any saved backup.
 """
 
-import gzip
 import json
-import shutil
 import tarfile
 from datetime import datetime
 from pathlib import Path
@@ -23,8 +21,6 @@ class BackupService:
         settings = get_settings()
         self._data_dir = Path(settings.database.duckdb_path).parent
         self._db_path = Path(settings.database.duckdb_path)
-        self._parquet_dir = Path(settings.database.parquet_dir)
-        self._cache_dir = Path(settings.database.cache_dir)
         self._config_path = Path("config.yaml")
         self._backup_dir = Path(backup_dir) if backup_dir else self._data_dir / "backups"
         self._backup_dir.mkdir(parents=True, exist_ok=True)
@@ -32,23 +28,9 @@ class BackupService:
     def create_backup(
         self,
         label: Optional[str] = None,
-        include_parquet: bool = True,
-        include_cache: bool = False,
         compress: bool = True,
     ) -> Dict[str, Any]:
-        """Create a timestamped backup archive.
-
-        Parameters
-        ----------
-        label : optional tag for this backup
-        include_parquet : include Parquet data files
-        include_cache : include disk cache files
-        compress : gzip-compress the archive
-
-        Returns
-        -------
-        dict with backup metadata
-        """
+        """Create a timestamped backup archive of DuckDB + config."""
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         tag = f"_{label}" if label else ""
         archive_name = f"backup_{ts}{tag}"
@@ -57,8 +39,6 @@ class BackupService:
         metadata: Dict[str, Any] = {
             "timestamp": ts,
             "label": label,
-            "include_parquet": include_parquet,
-            "include_cache": include_cache,
             "compressed": compress,
             "files": {},
         }
@@ -71,14 +51,6 @@ class BackupService:
             if self._config_path.exists():
                 tar.add(self._config_path, arcname=f"{archive_name}/config/config.yaml")
                 metadata["files"]["config"] = str(self._config_path)
-
-            if include_parquet and self._parquet_dir.exists():
-                tar.add(self._parquet_dir, arcname=f"{archive_name}/parquet")
-                metadata["files"]["parquet"] = str(self._parquet_dir)
-
-            if include_cache and self._cache_dir.exists():
-                tar.add(self._cache_dir, arcname=f"{archive_name}/cache")
-                metadata["files"]["cache"] = str(self._cache_dir)
 
         metadata["archive_path"] = str(archive_path)
         metadata["archive_size_bytes"] = archive_path.stat().st_size
@@ -103,22 +75,11 @@ class BackupService:
     def restore_backup(
         self,
         archive_path: str,
-        restore_parquet: bool = True,
-        restore_cache: bool = False,
         restore_config: bool = False,
     ) -> Dict[str, Any]:
         """Restore data from a backup archive.
 
-        Parameters
-        ----------
-        archive_path : path to the .tar.gz or .tar backup file
-        restore_parquet : restore Parquet data files
-        restore_cache : restore disk cache
-        restore_config : restore config.yaml
-
-        Returns
-        -------
-        dict with restoration summary
+        By default only restores the DuckDB database file.
         """
         path = Path(archive_path)
         if not path.exists():
@@ -134,21 +95,22 @@ class BackupService:
                 for member in members:
                     name = member.name
 
-                    if "db/" in name and name.endswith(".db"):
-                        tar.extract(member, path=str(self._data_dir))
-                        restored.append(f"database: {name}")
-
-                    elif "parquet/" in name and restore_parquet:
-                        tar.extract(member, path=str(self._data_dir))
-                        restored.append(f"parquet: {name}")
-
-                    elif "cache/" in name and restore_cache:
-                        tar.extract(member, path=str(self._data_dir))
-                        restored.append(f"cache: {name}")
+                    if "db/" in name and (name.endswith(".db") or name.endswith(".duckdb")):
+                        # Extract to data_dir, stripping the archive prefix
+                        member_copy = tarfile.TarInfo(name=f"db/{self._db_path.name}")
+                        member_copy.size = member.size
+                        extracted = tar.extractfile(member)
+                        if extracted:
+                            out_path = self._data_dir / self._db_path.name
+                            out_path.write_bytes(extracted.read())
+                            restored.append(f"database: {name}")
 
                     elif "config/" in name and restore_config:
-                        tar.extract(member, path=".")
-                        restored.append(f"config: {name}")
+                        extracted = tar.extractfile(member)
+                        if extracted:
+                            out_path = Path("config.yaml")
+                            out_path.write_bytes(extracted.read())
+                            restored.append(f"config: {name}")
 
         except Exception as e:
             errors.append(str(e))
@@ -176,12 +138,7 @@ class BackupService:
         return deleted
 
     def prune_old_backups(self, keep_count: int = 7) -> Dict[str, Any]:
-        """Remove oldest backups, keeping only the latest *keep_count*.
-
-        Returns
-        -------
-        dict with pruned backup paths
-        """
+        """Remove oldest backups, keeping only the latest *keep_count*."""
         backups = self.list_backups()
         if len(backups) <= keep_count:
             return {"pruned_count": 0, "kept_count": len(backups)}
@@ -200,12 +157,7 @@ class BackupService:
         }
 
     def verify_backup(self, archive_path: str) -> Dict[str, Any]:
-        """Verify the integrity of a backup archive.
-
-        Returns
-        -------
-        dict with verification result
-        """
+        """Verify the integrity of a backup archive."""
         path = Path(archive_path)
         if not path.exists():
             return {"valid": False, "error": "Archive not found"}

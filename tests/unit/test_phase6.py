@@ -24,56 +24,18 @@ sys.path.insert(0, str(PROJECT_ROOT))
 def tmp_data(tmp_path):
     data_dir = tmp_path / "data"
     data_dir.mkdir()
-    parquet_dir = data_dir / "parquet"
-    parquet_dir.mkdir()
-    cache_dir = data_dir / "cache"
-    cache_dir.mkdir()
-    (cache_dir / "queries").mkdir()
     return data_dir
-
-
-@pytest.fixture
-def sample_parquet(tmp_data):
-    parquet_dir = tmp_data / "parquet"
-    df = pd.DataFrame({
-        "date": pd.date_range("2024-01-01", periods=10, freq="D"),
-        "open": [10.0] * 10,
-        "high": [11.0] * 10,
-        "low": [9.0] * 10,
-        "close": [10.5] * 10,
-        "volume": [1000] * 10,
-    })
-    path = parquet_dir / "000001.SZ.parquet"
-    df.to_parquet(path, index=False)
-    return path
-
-
-@pytest.fixture
-def old_parquet(tmp_data):
-    parquet_dir = tmp_data / "parquet"
-    df = pd.DataFrame({"date": ["2020-01-01"], "close": [5.0]})
-    path = parquet_dir / "OLD.parquet"
-    df.to_parquet(path, index=False)
-    old_mtime = time.time() - 86400 * 400
-    os.utime(path, (old_mtime, old_mtime))
-    return path
 
 
 @pytest.fixture
 def mock_settings(tmp_data, test_settings):
     originals = {
-        "parquet_dir": test_settings.database.parquet_dir,
-        "cache_dir": test_settings.database.cache_dir,
         "duckdb_path": test_settings.database.duckdb_path,
         "custom_path": test_settings.indicators.custom_path,
     }
-    test_settings.database.parquet_dir = str(tmp_data / "parquet")
-    test_settings.database.cache_dir = str(tmp_data / "cache")
     test_settings.database.duckdb_path = str(tmp_data / "tdxview.db")
     test_settings.indicators.custom_path = str(tmp_data / "plugins" / "indicators")
     yield test_settings
-    test_settings.database.parquet_dir = originals["parquet_dir"]
-    test_settings.database.cache_dir = originals["cache_dir"]
     test_settings.database.duckdb_path = originals["duckdb_path"]
     test_settings.indicators.custom_path = originals["custom_path"]
 
@@ -84,78 +46,30 @@ def mock_settings(tmp_data, test_settings):
 
 
 class TestRetentionService:
-    def test_scan_parquet_files(self, sample_parquet, mock_settings):
+    def test_scan_stored_data_empty(self, mock_settings):
         from app.services.retention_service import RetentionService
         svc = RetentionService()
-        files = svc.scan_parquet_files()
-        assert len(files) >= 1
-        assert any("000001.SZ" in f["symbol"] for f in files)
-
-    def test_scan_empty_dir(self, mock_settings):
-        from app.services.retention_service import RetentionService
-        svc = RetentionService()
-        files = svc.scan_parquet_files()
+        files = svc.scan_stored_data()
         assert files == []
 
-    def test_archive_candidates_empty(self, sample_parquet, mock_settings):
-        from app.services.retention_service import RetentionService
-        svc = RetentionService()
-        svc._archive_threshold_days = 9999
-        candidates = svc.get_archive_candidates()
-        assert candidates == []
+    def test_scan_with_data(self, mock_settings):
+        import pandas as pd
+        from app.data.duckdb_store import DuckDBStore
+        from app.data.database import DatabaseManager
 
-    def test_archive_candidates_found(self, old_parquet, mock_settings):
-        from app.services.retention_service import RetentionService
-        svc = RetentionService()
-        svc._archive_threshold_days = 30
-        candidates = svc.get_archive_candidates()
-        assert len(candidates) >= 1
-        assert any("OLD" in c["symbol"] for c in candidates)
-
-    def test_archive_files(self, old_parquet, mock_settings):
-        from app.services.retention_service import RetentionService
-        svc = RetentionService()
-        svc._archive_threshold_days = 30
-        result = svc.archive_files()
-        assert result["archived_count"] >= 1
-        assert result["total_bytes"] > 0
-
-    def test_purge_expired_files(self, old_parquet, mock_settings):
-        from app.services.retention_service import RetentionService
-        svc = RetentionService()
-        svc._retention_days = 300
-        result = svc.purge_expired_files(archive_first=False)
-        assert result["purged_count"] >= 1
-        assert result["total_bytes_freed"] > 0
-
-    def test_cleanup_cache(self, tmp_data, mock_settings):
-        queries_dir = tmp_data / "cache" / "queries"
-        sub = queries_dir / "ab"
-        sub.mkdir(parents=True, exist_ok=True)
-        expired_file = sub / "expired.json"
-        expired_file.write_text(json.dumps({
-            "value": {"test": 1},
-            "expires_at": time.time() - 100,
-            "created_at": time.time() - 200,
-        }))
-        valid_file = sub / "valid.json"
-        valid_file.write_text(json.dumps({
-            "value": {"test": 2},
-            "expires_at": time.time() + 3600,
-            "created_at": time.time(),
-        }))
+        db = DatabaseManager(db_path=mock_settings.database.duckdb_path)
+        store = DuckDBStore(db)
+        df = pd.DataFrame({
+            "date": ["2024-01-02"], "open": [10.0], "high": [10.5],
+            "low": [9.8], "close": [10.3], "volume": [100000], "amount": [1000000.0],
+        })
+        store.save(df, "AAPL", data_type="history")
 
         from app.services.retention_service import RetentionService
-        svc = RetentionService()
-        result = svc.cleanup_cache()
-        assert result["removed_count"] == 1
-
-    def test_get_storage_stats(self, sample_parquet, mock_settings):
-        from app.services.retention_service import RetentionService
-        svc = RetentionService()
-        stats = svc.get_storage_stats()
-        assert stats["parquet_bytes"] > 0
-        assert stats["total_bytes"] > 0
+        svc = RetentionService(db=db)
+        result = svc.scan_stored_data()
+        assert any(r["symbol"] == "AAPL" for r in result)
+        db.close()
 
     def test_set_policy(self, mock_settings):
         from app.services.retention_service import RetentionService
@@ -164,13 +78,39 @@ class TestRetentionService:
         assert svc._retention_days == 180
         assert svc._archive_threshold_days == 14
 
-    def test_run_full_retention(self, sample_parquet, mock_settings):
+    def test_purge_old_data(self, mock_settings):
+        import pandas as pd
+        from app.data.duckdb_store import DuckDBStore
+        from app.data.database import DatabaseManager
+
+        db = DatabaseManager(db_path=mock_settings.database.duckdb_path)
+        store = DuckDBStore(db)
+        df = pd.DataFrame({
+            "date": ["2020-01-02"], "open": [10.0], "high": [10.5],
+            "low": [9.8], "close": [10.3], "volume": [100000], "amount": [1000000.0],
+        })
+        store.save(df, "OLD", data_type="history")
+
+        from app.services.retention_service import RetentionService
+        svc = RetentionService(db=db)
+        svc._retention_days = 365
+        result = svc.purge_expired_data()
+        assert result["purged_count"] >= 1
+        db.close()
+
+    def test_get_storage_stats(self, mock_settings):
+        from app.services.retention_service import RetentionService
+        svc = RetentionService()
+        stats = svc.get_storage_stats()
+        assert "data_rows" in stats
+        assert "database_bytes" in stats
+
+    def test_run_full_retention(self, mock_settings):
         from app.services.retention_service import RetentionService
         svc = RetentionService()
         result = svc.run_full_retention()
-        assert "archive" in result
         assert "purge" in result
-        assert "cache_cleanup" in result
+        assert "log_cleanup" in result
         assert "storage_after" in result
         assert "timestamp" in result
 
@@ -191,13 +131,13 @@ class TestBackupService:
         assert Path(meta["archive_path"]).exists()
         assert meta["archive_size_bytes"] > 0
 
-    def test_create_backup_with_parquet(self, sample_parquet, mock_settings):
+    def test_create_backup_with_data(self, mock_settings):
         db_path = Path(mock_settings.database.duckdb_path)
         db_path.parent.mkdir(parents=True, exist_ok=True)
         db_path.write_text("fake db")
         from app.services.backup_service import BackupService
         svc = BackupService(backup_dir=str(Path(mock_settings.database.duckdb_path).parent / "backups"))
-        meta = svc.create_backup(include_parquet=True)
+        meta = svc.create_backup(label="with_data")
         assert Path(meta["archive_path"]).exists()
 
     def test_list_backups_empty(self, mock_settings):
@@ -496,8 +436,7 @@ class TestDataServicePerformance:
         svc = DataService()
         stats = svc.get_stats()
         assert "source_connected" in stats
-        assert "cache" in stats
-        assert "memory_count" in stats["cache"]
+        assert "tables" in stats
 
     def test_batch_query_unknown_method(self, mock_settings):
         from app.services.data_service import DataService

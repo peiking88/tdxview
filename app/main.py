@@ -31,7 +31,7 @@ st.set_page_config(
 
         基于tdxdata的历史数据分析和技术指标计算平台。
 
-        版本: 1.2.0
+        版本: 1.3.0
         """
     }
 )
@@ -139,11 +139,9 @@ def main():
 def initialize_app():
     """初始化应用"""
     # 检查必要目录
-    data_dir = Path(settings.database.parquet_dir)
-    cache_dir = Path(settings.database.cache_dir)
     log_dir = Path(settings.logging.file_path).parent
 
-    for directory in [data_dir, cache_dir, log_dir]:
+    for directory in [log_dir]:
         directory.mkdir(parents=True, exist_ok=True)
 
     # 初始化数据库（如果表不存在）

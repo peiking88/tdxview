@@ -254,21 +254,6 @@ class TdxDataSource(DataSourceBase):
             dividend_type=dividend_type,
         )
 
-    def fetch_to_parquet(
-        self,
-        source: str,
-        output_path: str,
-        **kwargs: Any,
-    ) -> Any:
-        """Fetch data and save directly to Parquet via tdxdata's storage backend."""
-        self._ensure_api()
-        return self._api.fetch(
-            source=source,
-            output="parquet",
-            output_path=output_path,
-            **kwargs,
-        )
-
     # ------------------------------------------------------------------
     # Context manager
     # ------------------------------------------------------------------

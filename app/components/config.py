@@ -1,5 +1,5 @@
 """
-Config component — data source management, cache settings, log viewer.
+Config component — data source management, storage info, log viewer.
 """
 
 import json
@@ -11,7 +11,6 @@ from typing import Any, Dict, List, Optional
 import streamlit as st
 
 from app.config.settings import get_settings, reload_settings
-from app.data.cache import CacheManager, MemoryCache, DiskCache
 from app.data.database import DatabaseManager
 from app.services.data_service import DataService
 
@@ -66,15 +65,15 @@ def config_component():
     """Render the system configuration page."""
     st.header("系统配置")
 
-    tab_ds, tab_cache, tab_log, tab_sys = st.tabs(
-        ["数据源管理", "缓存配置", "日志查看", "系统信息"]
+    tab_ds, tab_storage, tab_log, tab_sys = st.tabs(
+        ["数据源管理", "存储管理", "日志查看", "系统信息"]
     )
 
     with tab_ds:
         _render_data_sources()
 
-    with tab_cache:
-        _render_cache_config()
+    with tab_storage:
+        _render_storage_config()
 
     with tab_log:
         _render_log_viewer()
@@ -127,95 +126,51 @@ def _render_data_sources():
 
 
 # ======================================================================
-# Tab 2: Cache Configuration
+# Tab 2: Storage Configuration
 # ======================================================================
 
-def _render_cache_config():
-    """Cache settings and management."""
-    st.subheader("缓存配置")
+def _render_storage_config():
+    """DuckDB storage statistics and management."""
+    st.subheader("存储管理")
     settings = get_settings()
 
-    # --- 1. 统计信息（一行展示） ---
-    try:
-        cm = CacheManager()
-        mem_count = cm.memory.count
-        mem_size = f"{cm.memory.size / 1024:.1f} KB"
-        cache_dir = Path(settings.database.cache_dir) / "queries"
-        if cache_dir.exists():
-            disk_files = list(cache_dir.rglob("*.json"))
-            disk_count = len(disk_files)
-            disk_size = f"{sum(f.stat().st_size for f in disk_files) / 1024:.1f} KB"
-        else:
-            disk_count = 0
-            disk_size = "0.0 KB"
-    except Exception:
-        mem_count, mem_size, disk_count, disk_size = 0, "0 KB", 0, "0 KB"
+    # --- Database file info ---
+    db_path = Path(settings.database.duckdb_path)
+    db_size_mb = round(db_path.stat().st_size / 1e6, 2) if db_path.exists() else 0
 
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("内存条目", f"{mem_count}")
-    c2.metric("内存大小", mem_size)
-    c3.metric("磁盘文件", f"{disk_count}")
-    c4.metric("磁盘大小", disk_size)
+    c1, c2, c3 = st.columns(3)
+    c1.metric("数据库路径", str(db_path))
+    c2.metric("数据库大小", f"{db_size_mb} MB")
+    c3.metric("WAL模式", "启用" if settings.database.wal_mode else "禁用")
 
-    # --- 2. 缓存配置（一行两列） ---
-    st.markdown("##### 缓存配置")
-    mc, dc = st.columns(2)
-    with mc:
-        st.markdown(
-            '<div style="font-size:0.82rem;color:#374151;line-height:1.8">'
-            f'容量 <b>{settings.cache.memory_max_size_mb} MB</b> &nbsp;·&nbsp; '
-            f'TTL <b>{settings.cache.memory_default_ttl}s</b> &nbsp;·&nbsp; '
-            f'启用 <b>{"是" if settings.cache.memory_enabled else "否"}</b>'
-            '</div>',
-            unsafe_allow_html=True,
-        )
-    with dc:
-        st.markdown(
-            '<div style="font-size:0.82rem;color:#374151;line-height:1.8">'
-            f'容量 <b>{settings.cache.disk_max_size_gb} GB</b> &nbsp;·&nbsp; '
-            f'压缩 <b>{"是" if settings.cache.disk_compression else "否"}</b> &nbsp;·&nbsp; '
-            f'启用 <b>{"是" if settings.cache.disk_enabled else "否"}</b>'
-            '</div>',
-            unsafe_allow_html=True,
-        )
+    # --- Table row counts ---
+    st.markdown("##### 各表数据量")
+    db = DatabaseManager()
+    table_labels = {
+        "kline": "K线", "tick": "逐笔", "financial": "财务",
+        "f10": "F10", "factor": "复权因子", "basic": "除权除息",
+        "realtime": "实时行情",
+    }
+    cols = st.columns(len(table_labels))
+    for i, (table, label) in enumerate(table_labels.items()):
+        try:
+            row = db.fetch_one(f"SELECT count(*) FROM {table}")
+            count = row[0] if row else 0
+        except Exception:
+            count = 0
+        with cols[i]:
+            st.metric(label, f"{count:,}")
 
-    # --- 3. 查询缓存（一行） ---
-    st.markdown("##### 查询缓存")
-    st.markdown(
-        '<div style="font-size:0.82rem;color:#374151;line-height:1.8">'
-        f'TTL <b>{settings.cache.query_ttl}s</b> &nbsp;·&nbsp; '
-        f'最大条目 <b>{settings.cache.query_max_items}</b>'
-        '</div>',
-        unsafe_allow_html=True,
-    )
-
-    # --- 4. 缓存操作（一行三按钮） ---
-    st.markdown("##### 缓存操作")
-    col_clear1, col_clear2, col_clear3 = st.columns(3)
-    with col_clear1:
-        if st.button("清空内存缓存", key="clear_mem_cache", use_container_width=True):
-            try:
-                CacheManager().memory.clear()
-                st.success("已清空")
-                st.rerun()
-            except Exception as e:
-                st.error(f"失败: {e}")
-    with col_clear2:
-        if st.button("清空磁盘缓存", key="clear_disk_cache", use_container_width=True):
-            try:
-                CacheManager().disk.clear()
-                st.success("已清空")
-                st.rerun()
-            except Exception as e:
-                st.error(f"失败: {e}")
-    with col_clear3:
-        if st.button("清空全部缓存", key="clear_all_cache", use_container_width=True):
-            try:
-                CacheManager().clear()
-                st.success("已清空")
-                st.rerun()
-            except Exception as e:
-                st.error(f"失败: {e}")
+    # --- Optimize database ---
+    st.markdown("##### 数据库操作")
+    if st.button("优化数据库 (CHECKPOINT)", key="optimize_db", use_container_width=True):
+        try:
+            db.execute("CHECKPOINT")
+            db.connection.commit()
+            st.success("数据库优化完成")
+            st.rerun()
+        except Exception as e:
+            st.error(f"优化失败: {e}")
 
 
 # ======================================================================
@@ -284,7 +239,7 @@ def _render_log_viewer():
 
 
 # ======================================================================
-# Tab 4: User Preferences
+# Tab 4: System Info
 # ======================================================================
 
 def _render_system_info():
@@ -301,8 +256,6 @@ def _render_system_info():
         },
         "数据库": {
             "路径": settings.database.duckdb_path,
-            "Parquet目录": settings.database.parquet_dir,
-            "缓存目录": settings.database.cache_dir,
             "WAL模式": settings.database.wal_mode,
         },
         "数据源": {

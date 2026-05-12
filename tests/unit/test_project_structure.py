@@ -69,18 +69,19 @@ class TestBasicImports:
         settings = get_settings()
         assert settings.app.name == "tdxview"
 
-    def test_import_cache(self):
-        from app.data.cache import CacheManager, generate_cache_key
-        key = generate_cache_key("test", {"a": 1})
-        assert key.startswith("test:")
+    def test_import_cache_module_removed(self):
+        """Cache module should no longer exist."""
+        import importlib
+        with pytest.raises(ModuleNotFoundError):
+            importlib.import_module("app.data.cache")
 
     def test_import_database(self):
         from app.data.database import DatabaseManager
         assert DatabaseManager is not None
 
-    def test_import_parquet_manager(self):
-        from app.data.parquet_manager import ParquetManager
-        assert ParquetManager is not None
+    def test_import_duckdb_store(self):
+        from app.data.duckdb_store import DuckDBStore
+        assert DuckDBStore is not None
 
     def test_import_tdxdata_source(self):
         from app.data.sources.tdxdata_source import TdxDataSource

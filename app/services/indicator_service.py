@@ -1,5 +1,5 @@
 """
-Indicator service — calculates technical indicators, caches results,
+Indicator service — calculates technical indicators
 and integrates with visualization.
 """
 
@@ -9,9 +9,6 @@ from typing import Any, Dict, List, Optional, Tuple
 import pandas as pd
 import plotly.graph_objects as go
 
-from app.config.settings import get_settings
-from app.data.cache import CacheManager, generate_cache_key
-from app.data.database import DatabaseManager
 from app.utils.indicators.trend import sma, ema, macd
 from app.utils.indicators.momentum import rsi, rps
 from app.utils.indicators.volatility import bollinger_bands
@@ -97,7 +94,7 @@ class IndicatorService:
     """Service layer for technical indicator calculation and management."""
 
     def __init__(self):
-        self._cache = CacheManager()
+        pass
 
     # ------------------------------------------------------------------
     # Calculate a single indicator
@@ -123,17 +120,6 @@ class IndicatorService:
 
         entry = INDICATOR_REGISTRY[indicator_name]
         merged_params = {**entry["default_params"], **(params or {})}
-
-        # Cache check
-        if use_cache:
-            cache_key = generate_cache_key("indicator", {
-                "name": indicator_name,
-                "params": merged_params,
-                "data_hash": hash(tuple(df["close"].values.tobytes() if "close" in df.columns else [])),
-            })
-            cached = self._cache.get(cache_key)
-            if cached is not None:
-                return {k: pd.Series(v) for k, v in cached.items()}
 
         # Compute
         fn = entry["fn"]
@@ -168,12 +154,6 @@ class IndicatorService:
                 output = {indicator_name: result}
         else:
             output = {indicator_name: result}
-
-        # Cache
-        if use_cache:
-            cache_data = {k: v.tolist() for k, v in output.items()}
-            settings = get_settings()
-            self._cache.set(cache_key, cache_data, ttl=settings.indicators.cache_ttl)
 
         return output
 

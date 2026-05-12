@@ -2,7 +2,7 @@
 集成测试共享fixture
 
 原则：真实环境优先于 mock
-- DuckDB / Parquet / Cache 使用真实临时实例
+- DuckDB 使用真实临时实例
 - 通达信服务器可用时使用真实连接，不可用时自动降级为 mock
 - get_settings 已由 tests/conftest.py autouse patch 统一管理
 - 使用方式：
@@ -38,26 +38,6 @@ def tmp_db_path(tmp_base, test_settings):
     test_settings.database.duckdb_path = db_path
     yield db_path
     test_settings.database.duckdb_path = original
-
-
-@pytest.fixture(scope="session")
-def tmp_parquet_dir(tmp_base, test_settings):
-    p = tmp_base / "parquet"
-    p.mkdir(exist_ok=True)
-    original = test_settings.database.parquet_dir
-    test_settings.database.parquet_dir = str(p)
-    yield str(p)
-    test_settings.database.parquet_dir = original
-
-
-@pytest.fixture(scope="session")
-def tmp_cache_dir(tmp_base, test_settings):
-    p = tmp_base / "cache"
-    p.mkdir(exist_ok=True)
-    original = test_settings.database.cache_dir
-    test_settings.database.cache_dir = str(p)
-    yield str(p)
-    test_settings.database.cache_dir = original
 
 
 @pytest.fixture(scope="session", autouse=True)

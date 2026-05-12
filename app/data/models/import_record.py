@@ -15,6 +15,7 @@ class DataType(str, Enum):
     FINANCIAL = "financial"
     F10 = "f10"
     BASIC = "basic"
+    FACTOR = "factor"
 
 
 class ImportStatus(str, Enum):
@@ -33,7 +34,15 @@ class ImportRecordModel(BaseModel):
     record_count: int = 0
     start_date: Optional[str] = None
     end_date: Optional[str] = None
-    parquet_path: Optional[str] = None
+    storage_key: Optional[str] = None
+
+    @property
+    def parquet_path(self) -> Optional[str]:
+        return self.storage_key
+
+    @parquet_path.setter
+    def parquet_path(self, value: Optional[str]):
+        self.storage_key = value
     file_size_bytes: Optional[int] = None
     error_message: Optional[str] = None
     import_duration_ms: Optional[int] = None

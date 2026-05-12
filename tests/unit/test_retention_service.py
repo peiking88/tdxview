@@ -1,87 +1,54 @@
 """
-RetentionService additional unit tests covering uncovered lines.
+RetentionService 单元测试 — 覆盖 SQL-based 数据清理。
 
-原则：真实环境优先于 mock
 - DuckDB 使用真实临时实例
-- 文件系统操作使用真实临时目录
-- get_settings 已由 conftest autouse patch 指向临时目录
 """
 
 import json
 import time
 from pathlib import Path
-from unittest.mock import MagicMock
 
 import pytest
 
+from app.data.database import DatabaseManager
+from app.data.duckdb_store import DuckDBStore
 from app.services.retention_service import RetentionService
 
 
 @pytest.fixture
-def data_dirs(tmp_path, test_settings):
-    parquet_dir = tmp_path / "parquet"
-    parquet_dir.mkdir()
-    cache_dir = tmp_path / "cache"
-    cache_dir.mkdir()
-    queries_dir = cache_dir / "queries"
-    queries_dir.mkdir()
+def db(tmp_path, test_settings):
     db_path = str(tmp_path / "test.duckdb")
-
-    originals = {
-        "parquet_dir": test_settings.database.parquet_dir,
-        "cache_dir": test_settings.database.cache_dir,
-        "duckdb_path": test_settings.database.duckdb_path,
-    }
-    test_settings.database.parquet_dir = str(parquet_dir)
-    test_settings.database.cache_dir = str(cache_dir)
     test_settings.database.duckdb_path = db_path
 
-    yield {
-        "parquet_dir": parquet_dir,
-        "cache_dir": cache_dir,
-        "queries_dir": queries_dir,
-        "db_path": db_path,
-    }
-
-    test_settings.database.parquet_dir = originals["parquet_dir"]
-    test_settings.database.cache_dir = originals["cache_dir"]
-    test_settings.database.duckdb_path = originals["duckdb_path"]
+    mgr = DatabaseManager(db_path=db_path)
+    # 创建 system_logs / audit_logs 表
+    mgr.execute("""
+        CREATE TABLE IF NOT EXISTS system_logs (
+            id INTEGER PRIMARY KEY, level TEXT NOT NULL, module TEXT NOT NULL,
+            message TEXT NOT NULL, details JSON, user_id INTEGER,
+            ip_address TEXT, user_agent TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    mgr.execute("""
+        CREATE TABLE IF NOT EXISTS audit_logs (
+            id INTEGER PRIMARY KEY, user_id INTEGER, action TEXT NOT NULL,
+            resource_type TEXT NOT NULL, resource_id TEXT, details JSON,
+            ip_address TEXT, user_agent TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    mgr.connection.commit()
+    yield mgr
+    mgr.close()
 
 
 @pytest.fixture
-def svc(data_dirs):
-    service = RetentionService()
+def store(db):
+    return DuckDBStore(db)
 
-    from app.data.database import DatabaseManager
-    db = DatabaseManager(db_path=data_dirs["db_path"])
-    db.execute("""
-        CREATE TABLE IF NOT EXISTS system_logs (
-            id INTEGER PRIMARY KEY,
-            level TEXT NOT NULL,
-            module TEXT NOT NULL,
-            message TEXT NOT NULL,
-            details JSON,
-            user_id INTEGER,
-            ip_address TEXT,
-            user_agent TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-    db.execute("""
-        CREATE TABLE IF NOT EXISTS audit_logs (
-            id INTEGER PRIMARY KEY,
-            user_id INTEGER,
-            action TEXT NOT NULL,
-            resource_type TEXT NOT NULL,
-            resource_id TEXT,
-            details JSON,
-            ip_address TEXT,
-            user_agent TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-    db.connection.commit()
-    service._db = db
+
+@pytest.fixture
+def svc(db, test_settings):
+    service = RetentionService(db=db)
     return service
 
 
@@ -92,117 +59,66 @@ class TestSetPolicy:
         assert svc._archive_threshold_days == 14
 
 
-class TestScanParquetFiles:
-    def test_scan_empty_dir(self, svc, data_dirs):
-        result = svc.scan_parquet_files()
+class TestScanStoredData:
+    def test_scan_empty(self, svc, store):
+        result = svc.scan_stored_data()
         assert result == []
 
-    def test_scan_nonexistent_dir(self, svc):
-        svc._parquet_dir = Path("/nonexistent_xyz")
-        result = svc.scan_parquet_files()
-        assert result == []
-
-    def test_scan_with_files(self, svc, data_dirs):
-        pq_file = data_dirs["parquet_dir"] / "AAPL.parquet"
-        pq_file.write_text("test_data_content_here")
-        old_mtime = time.time() - 40 * 86400
-        import os
-        os.utime(str(pq_file), (old_mtime, old_mtime))
-
-        result = svc.scan_parquet_files()
-        assert len(result) == 1
-        assert result[0]["symbol"] == "AAPL"
-        assert result[0]["age_days"] > 30
-
-    def test_scan_with_partition(self, svc, data_dirs):
-        partition_dir = data_dirs["parquet_dir"] / "2024-01"
-        partition_dir.mkdir()
-        pq_file = partition_dir / "GOOGL.parquet"
-        pq_file.write_text("test_data")
-        old_mtime = time.time() - 40 * 86400
-        import os
-        os.utime(str(pq_file), (old_mtime, old_mtime))
-
-        result = svc.scan_parquet_files()
-        assert len(result) == 1
-        assert result[0]["date_partition"] == "2024-01"
+    def test_scan_with_data(self, svc, store):
+        import pandas as pd
+        df = pd.DataFrame({
+            "date": ["2024-01-02"], "open": [10.0], "high": [10.5],
+            "low": [9.8], "close": [10.3], "volume": [100000], "amount": [1000000.0],
+        })
+        store.save(df, "AAPL", data_type="history")
+        result = svc.scan_stored_data()
+        assert any(r["symbol"] == "AAPL" and r["table"] == "kline" for r in result)
 
 
 class TestGetCandidates:
-    def test_get_archive_candidates(self, svc, data_dirs):
-        pq_file = data_dirs["parquet_dir"] / "OLD.parquet"
-        pq_file.write_text("old_data_content_here")
-        old_mtime = time.time() - 60 * 86400
-        import os
-        os.utime(str(pq_file), (old_mtime, old_mtime))
-
-        svc.set_policy(archive_threshold_days=30)
-        candidates = svc.get_archive_candidates()
-        assert len(candidates) == 1
-
-    def test_get_purge_candidates(self, svc, data_dirs):
-        pq_file = data_dirs["parquet_dir"] / "VERYOLD.parquet"
-        pq_file.write_text("very_old_data_content_here")
-        old_mtime = time.time() - 400 * 86400
-        import os
-        os.utime(str(pq_file), (old_mtime, old_mtime))
-
+    def test_no_candidates_fresh_data(self, svc, store):
+        import pandas as pd
+        df = pd.DataFrame({
+            "date": ["2026-01-02"], "open": [10.0], "high": [10.5],
+            "low": [9.8], "close": [10.3], "volume": [100000], "amount": [1000000.0],
+        })
+        store.save(df, "AAPL", data_type="history")
         svc.set_policy(retention_days=365)
         candidates = svc.get_purge_candidates()
-        assert len(candidates) == 1
+        assert len(candidates) == 0
+
+    def test_candidates_old_data(self, svc, store):
+        import pandas as pd
+        df = pd.DataFrame({
+            "date": ["2020-01-02"], "open": [10.0], "high": [10.5],
+            "low": [9.8], "close": [10.3], "volume": [100000], "amount": [1000000.0],
+        })
+        store.save(df, "OLD", data_type="history")
+        svc.set_policy(retention_days=365)
+        candidates = svc.get_purge_candidates()
+        assert len(candidates) >= 1
+        assert any(c["symbol"] == "OLD" for c in candidates)
 
 
-class TestArchiveFiles:
-    def test_archive_no_candidates(self, svc):
-        result = svc.archive_files(files=[])
-        assert result["archived_count"] == 0
-
-    def test_archive_files_success(self, svc, data_dirs):
-        pq_file = data_dirs["parquet_dir"] / "TEST.parquet"
-        pq_file.write_text("test_content_data")
-        old_mtime = time.time() - 60 * 86400
-        import os
-        os.utime(str(pq_file), (old_mtime, old_mtime))
-
-        files = svc.scan_parquet_files()
-        result = svc.archive_files(files=files)
-        assert result["archived_count"] == 1
-        assert result["total_bytes"] > 0
-
-
-class TestPurgeExpiredFiles:
-    def test_purge_no_candidates(self, svc):
-        result = svc.purge_expired_files(files=[])
+class TestPurgeExpiredData:
+    def test_purge_nothing(self, svc):
+        result = svc.purge_expired_data()
         assert result["purged_count"] == 0
 
-    def test_purge_files(self, svc, data_dirs):
-        pq_file = data_dirs["parquet_dir"] / "DEL.parquet"
-        pq_file.write_text("delete_this_data_content")
-        assert pq_file.exists()
+    def test_purge_old_data(self, svc, store):
+        import pandas as pd
+        df = pd.DataFrame({
+            "date": ["2020-01-02"], "open": [10.0], "high": [10.5],
+            "low": [9.8], "close": [10.3], "volume": [100000], "amount": [1000000.0],
+        })
+        store.save(df, "OLD", data_type="history")
+        svc.set_policy(retention_days=365)
+        result = svc.purge_expired_data()
+        assert result["purged_count"] >= 1
 
-        files = [{"path": str(pq_file), "size_bytes": 100}]
-        result = svc.purge_expired_files(files=files, archive_first=False)
-        assert result["purged_count"] == 1
-        assert not pq_file.exists()
-
-
-class TestCleanupCache:
-    def test_cleanup_no_dir(self, svc, data_dirs):
-        data_dirs["queries_dir"].rmdir()
-        result = svc.cleanup_cache()
-        assert result["removed_count"] == 0
-
-    def test_cleanup_expired_entries(self, svc, data_dirs):
-        queries_dir = data_dirs["queries_dir"]
-        expired = queries_dir / "expired.json"
-        expired.write_text(json.dumps({"expires_at": time.time() - 100}))
-        valid = queries_dir / "valid.json"
-        valid.write_text(json.dumps({"expires_at": time.time() + 10000}))
-
-        result = svc.cleanup_cache()
-        assert result["removed_count"] == 1
-        assert not expired.exists()
-        assert valid.exists()
+        # Verify data actually deleted
+        loaded = store.load("OLD", data_type="history")
+        assert loaded is None
 
 
 class TestCleanupSystemLogs:
@@ -236,21 +152,23 @@ class TestCleanupSystemLogs:
 
 
 class TestGetStorageStats:
-    def test_storage_stats(self, svc, data_dirs):
-        pq = data_dirs["parquet_dir"] / "test.parquet"
-        pq.write_text("data")
+    def test_storage_stats(self, svc, store):
+        import pandas as pd
+        df = pd.DataFrame({
+            "date": ["2024-01-02"], "open": [10.0], "high": [10.5],
+            "low": [9.8], "close": [10.3], "volume": [100000], "amount": [1000000.0],
+        })
+        store.save(df, "AAPL", data_type="history")
         result = svc.get_storage_stats()
-        assert "parquet_bytes" in result
-        assert "total_bytes" in result
-        assert result["parquet_bytes"] > 0
+        assert "data_rows" in result
+        assert "database_bytes" in result
+        assert result["data_rows"] >= 1
 
 
 class TestRunFullRetention:
-    def test_run_full(self, svc, data_dirs):
+    def test_run_full(self, svc):
         result = svc.run_full_retention()
         assert "timestamp" in result
-        assert "archive" in result
         assert "purge" in result
-        assert "cache_cleanup" in result
         assert "log_cleanup" in result
         assert "storage_after" in result

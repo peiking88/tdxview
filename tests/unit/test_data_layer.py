@@ -1,8 +1,7 @@
 """
-Unit tests for the data layer: cache, parquet, database, TdxDataSource, DataService.
+Unit tests for the data layer: database, TdxDataSource, DataService.
 """
 
-import json
 import time
 import tempfile
 from pathlib import Path
@@ -11,296 +10,7 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 import pytest
 
-from app.data.cache import MemoryCache, DiskCache, CacheManager, generate_cache_key
 from app.data.database import DatabaseManager
-from app.data.parquet_manager import ParquetManager
-
-
-# ===========================================================================
-# MemoryCache
-# ===========================================================================
-
-class TestMemoryCache:
-    def test_set_and_get(self):
-        cache = MemoryCache(max_size_mb=1, default_ttl=60)
-        cache.set("k1", "v1")
-        assert cache.get("k1") == "v1"
-
-    def test_get_missing_key(self):
-        cache = MemoryCache()
-        assert cache.get("nope") is None
-
-    def test_ttl_expiry(self):
-        cache = MemoryCache(max_size_mb=1, default_ttl=1)
-        cache.set("k1", "v1", ttl=1)
-        time.sleep(1.1)
-        assert cache.get("k1") is None
-
-    def test_delete(self):
-        cache = MemoryCache()
-        cache.set("k1", "v1")
-        cache.delete("k1")
-        assert cache.get("k1") is None
-
-    def test_clear(self):
-        cache = MemoryCache()
-        cache.set("k1", "v1")
-        cache.set("k2", "v2")
-        cache.clear()
-        assert cache.count == 0
-
-    def test_eviction(self):
-        cache = MemoryCache(max_size_mb=1, default_ttl=600)
-        # Set items with large sizes to trigger eviction
-        for i in range(200):
-            cache.set(f"k{i}", f"v{i}", size=10000)
-        # Should have evicted some items
-        assert cache.size <= 1 * 1024 * 1024
-
-    def test_lru_order(self):
-        cache = MemoryCache(max_size_mb=1, default_ttl=600)
-        cache.set("k1", "v1")
-        cache.set("k2", "v2")
-        # Access k1 to move it to end
-        cache.get("k1")
-        # k2 should be evicted first
-        assert cache.count == 2
-
-    def test_overwrite_key(self):
-        cache = MemoryCache()
-        cache.set("k1", "old")
-        cache.set("k1", "new")
-        assert cache.get("k1") == "new"
-
-
-# ===========================================================================
-# DiskCache
-# ===========================================================================
-
-class TestDiskCache:
-    def test_set_and_get(self, tmp_dir):
-        cache = DiskCache(cache_dir=str(tmp_dir / "cache"))
-        cache.set("k1", {"val": 42}, ttl=3600)
-        result = cache.get("k1")
-        assert result == {"val": 42}
-
-    def test_get_missing_key(self, tmp_dir):
-        cache = DiskCache(cache_dir=str(tmp_dir / "cache"))
-        assert cache.get("nope") is None
-
-    def test_ttl_expiry(self, tmp_dir):
-        cache = DiskCache(cache_dir=str(tmp_dir / "cache"))
-        cache.set("k1", {"val": 1}, ttl=1)
-        time.sleep(1.1)
-        assert cache.get("k1") is None
-
-    def test_delete(self, tmp_dir):
-        cache = DiskCache(cache_dir=str(tmp_dir / "cache"))
-        cache.set("k1", {"val": 1}, ttl=3600)
-        cache.delete("k1")
-        assert cache.get("k1") is None
-
-    def test_clear(self, tmp_dir):
-        cache = DiskCache(cache_dir=str(tmp_dir / "cache"))
-        cache.set("k1", {"val": 1}, ttl=3600)
-        cache.set("k2", {"val": 2}, ttl=3600)
-        cache.clear()
-        assert cache.get("k1") is None
-        assert cache.get("k2") is None
-
-
-# ===========================================================================
-# CacheManager
-# ===========================================================================
-
-class TestCacheManager:
-    def test_memory_hit(self, tmp_dir):
-        cm = CacheManager()
-        cm.memory.set("k1", "from_memory")
-        assert cm.get("k1") == "from_memory"
-
-    def test_disk_hit_promotes_to_memory(self, tmp_dir):
-        cm = CacheManager()
-        cm.disk.set("k1", {"val": "from_disk"}, ttl=3600)
-        # Memory miss, disk hit
-        result = cm.get("k1")
-        assert result == {"val": "from_disk"}
-        # Now it should be in memory too
-        assert cm.memory.get("k1") == {"val": "from_disk"}
-
-    def test_set_writes_both(self, tmp_dir):
-        cm = CacheManager()
-        cm.set("k1", {"val": 42})
-        assert cm.memory.get("k1") == {"val": 42}
-        assert cm.disk.get("k1") == {"val": 42}
-
-    def test_delete_removes_both(self, tmp_dir):
-        cm = CacheManager()
-        cm.set("k1", {"val": 1})
-        cm.delete("k1")
-        assert cm.memory.get("k1") is None
-        assert cm.disk.get("k1") is None
-
-    def test_clear_both(self, tmp_dir):
-        cm = CacheManager()
-        cm.set("k1", {"val": 1})
-        cm.clear()
-        assert cm.get("k1") is None
-
-
-# ===========================================================================
-# generate_cache_key
-# ===========================================================================
-
-class TestGenerateCacheKey:
-    def test_deterministic(self):
-        key1 = generate_cache_key("history", {"a": 1, "b": 2})
-        key2 = generate_cache_key("history", {"b": 2, "a": 1})
-        assert key1 == key2  # sort_keys ensures order doesn't matter
-
-    def test_different_params(self):
-        key1 = generate_cache_key("history", {"a": 1})
-        key2 = generate_cache_key("history", {"a": 2})
-        assert key1 != key2
-
-    def test_different_type(self):
-        key1 = generate_cache_key("history", {"a": 1})
-        key2 = generate_cache_key("realtime", {"a": 1})
-        assert key1 != key2
-
-    def test_format(self):
-        key = generate_cache_key("test", {"x": 1})
-        assert key.startswith("test:")
-
-
-# ===========================================================================
-# ParquetManager
-# ===========================================================================
-
-class TestParquetManager:
-    def test_save_and_load(self, tmp_dir):
-        pm = ParquetManager(parquet_dir=str(tmp_dir / "parquet"))
-        df = pd.DataFrame({"a": [1, 2], "b": [3, 4]})
-        pm.save(df, "000001.SZ")
-        loaded = pm.load("000001.SZ")
-        assert loaded is not None
-        assert len(loaded) == 2
-
-    def test_load_missing(self, tmp_dir):
-        pm = ParquetManager(parquet_dir=str(tmp_dir / "parquet"))
-        assert pm.load("MISSING") is None
-
-    def test_save_with_date_partition(self, tmp_dir):
-        pm = ParquetManager(parquet_dir=str(tmp_dir / "parquet"))
-        df = pd.DataFrame({"a": [1]})
-        pm.save(df, "000001.SZ", date="2024-01-15")
-        loaded = pm.load("000001.SZ", date="2024-01-15")
-        assert loaded is not None
-        assert len(loaded) == 1
-
-    def test_list_symbols(self, tmp_dir):
-        pm = ParquetManager(parquet_dir=str(tmp_dir / "parquet"))
-        pm.save(pd.DataFrame({"a": [1]}), "AAPL")
-        pm.save(pd.DataFrame({"b": [2]}), "GOOG")
-        symbols = pm.list_symbols()
-        assert "AAPL" in symbols
-        assert "GOOG" in symbols
-
-    def test_delete(self, tmp_dir):
-        pm = ParquetManager(parquet_dir=str(tmp_dir / "parquet"))
-        pm.save(pd.DataFrame({"a": [1]}), "DEL")
-        assert pm.delete("DEL") is True
-        assert pm.load("DEL") is None
-
-    def test_delete_missing(self, tmp_dir):
-        pm = ParquetManager(parquet_dir=str(tmp_dir / "parquet"))
-        assert pm.delete("NOPE") is False
-
-    # --- data_type parameter tests ---
-
-    def test_save_and_load_financial(self, tmp_dir):
-        pm = ParquetManager(parquet_dir=str(tmp_dir / "parquet"))
-        df = pd.DataFrame({"revenue": [100, 200]})
-        path = pm.save(df, "600519", data_type="financial")
-        assert "financial" in str(path)
-        loaded = pm.load("600519", data_type="financial")
-        assert loaded is not None
-        assert len(loaded) == 2
-
-    def test_save_and_load_basic(self, tmp_dir):
-        pm = ParquetManager(parquet_dir=str(tmp_dir / "parquet"))
-        df = pd.DataFrame({"dividend": [0.5]})
-        pm.save(df, "000001", data_type="basic")
-        loaded = pm.load("000001", data_type="basic")
-        assert loaded is not None
-
-    def test_save_and_load_f10(self, tmp_dir):
-        pm = ParquetManager(parquet_dir=str(tmp_dir / "parquet"))
-        df = pd.DataFrame({"section": ["summary"], "item": ["EPS"]})
-        pm.save(df, "600519", data_type="f10")
-        loaded = pm.load("600519", data_type="f10")
-        assert loaded is not None
-
-    def test_save_and_load_tick_with_date(self, tmp_dir):
-        pm = ParquetManager(parquet_dir=str(tmp_dir / "parquet"))
-        df = pd.DataFrame({"price": [15.0], "volume": [100]})
-        path = pm.save(df, "000001", date="2024-01-15", data_type="tick")
-        assert "tick/2024-01-15" in str(path)
-        loaded = pm.load("000001", date="2024-01-15", data_type="tick")
-        assert loaded is not None
-        assert len(loaded) == 1
-
-    def test_save_and_load_realtime(self, tmp_dir):
-        pm = ParquetManager(parquet_dir=str(tmp_dir / "parquet"))
-        df = pd.DataFrame({"price": [15.0]})
-        pm.save(df, "000001", data_type="realtime")
-        loaded = pm.load("000001", data_type="realtime")
-        assert loaded is not None
-
-    def test_list_symbols_by_type(self, tmp_dir):
-        pm = ParquetManager(parquet_dir=str(tmp_dir / "parquet"))
-        pm.save(pd.DataFrame({"a": [1]}), "AAPL", data_type="history", date="2024-01")
-        pm.save(pd.DataFrame({"b": [2]}), "AAPL", data_type="financial")
-        pm.save(pd.DataFrame({"c": [3]}), "GOOG", data_type="financial")
-        assert "AAPL" in pm.list_symbols(data_type="financial")
-        assert "GOOG" in pm.list_symbols(data_type="financial")
-        assert "AAPL" in pm.list_symbols(data_type="history")
-        assert "GOOG" not in pm.list_symbols(data_type="history")
-
-    def test_list_data_types(self, tmp_dir):
-        pm = ParquetManager(parquet_dir=str(tmp_dir / "parquet"))
-        pm.save(pd.DataFrame({"a": [1]}), "AAPL", data_type="history", date="2024-01")
-        pm.save(pd.DataFrame({"b": [2]}), "AAPL", data_type="financial")
-        types = pm.list_data_types(symbol="AAPL")
-        assert "history" in types
-        assert "financial" in types
-
-    def test_delete_by_type(self, tmp_dir):
-        pm = ParquetManager(parquet_dir=str(tmp_dir / "parquet"))
-        pm.save(pd.DataFrame({"a": [1]}), "AAPL", data_type="financial")
-        assert pm.delete("AAPL", data_type="financial") is True
-        assert pm.load("AAPL", data_type="financial") is None
-
-    def test_default_type_is_history(self, tmp_dir):
-        pm = ParquetManager(parquet_dir=str(tmp_dir / "parquet"))
-        df = pd.DataFrame({"a": [1]})
-        path = pm.save(df, "TEST")
-        assert "history" in str(path)
-
-    def test_load_no_date_history_fallback(self, tmp_dir):
-        pm = ParquetManager(parquet_dir=str(tmp_dir / "parquet"))
-        df = pd.DataFrame({"a": [1]})
-        pm.save(df, "FB", date="2024-03", data_type="history")
-        loaded = pm.load("FB", data_type="history")
-        assert loaded is not None
-
-    def test_get_parquet_info(self, tmp_dir):
-        pm = ParquetManager(parquet_dir=str(tmp_dir / "parquet"))
-        pm.save(pd.DataFrame({"a": [1]}), "INFO", data_type="financial")
-        info = pm.get_parquet_info("INFO", "financial")
-        assert info is not None
-        assert "path" in info
-        assert info["size_bytes"] > 0
 
 
 # ===========================================================================
@@ -348,7 +58,6 @@ class TestDatabaseManager:
         with DatabaseManager(db_path=db_path) as dm:
             dm.execute("CREATE TABLE t (id INT)")
             dm.connection.commit()
-        # Connection should be closed
 
 
 # ===========================================================================
@@ -448,7 +157,7 @@ class TestTdxDataSource:
 
 
 # ===========================================================================
-# DataService (mocked source + real cache/db)
+# DataService (mocked source + real DuckDB)
 # ===========================================================================
 
 @pytest.fixture
@@ -535,8 +244,13 @@ class TestDataServiceFetch:
             assert len(df) == 1
             assert df.iloc[0]["close"] == 1705.0
 
-    def test_get_history_caches_result(self, data_svc):
-        mock_df = pd.DataFrame({"close": [100]})
+    def test_get_history_stores_to_duckdb(self, data_svc):
+        mock_df = pd.DataFrame({
+            "stock_code": ["600519"],
+            "date": ["2024-01-02"],
+            "open": [1700.0], "high": [1710.0], "low": [1695.0],
+            "close": [1705.0], "volume": [10000],
+        })
         call_count = 0
 
         def mock_fetch(**kwargs):
@@ -545,11 +259,11 @@ class TestDataServiceFetch:
             return mock_df
 
         with patch.object(data_svc.source, "fetch_history", side_effect=mock_fetch):
-            # First call — fetches from source
+            # First call — fetches from source, stores to DuckDB
             df1 = data_svc.get_history(["600519"], "2024-01-01", "2024-01-31", use_cache=True)
             assert call_count == 1
 
-            # Second call — should hit memory cache
+            # Second call — should load from DuckDB without fetching
             df2 = data_svc.get_history(["600519"], "2024-01-01", "2024-01-31", use_cache=True)
             assert call_count == 1  # no additional fetch
 
@@ -562,6 +276,7 @@ class TestDataServiceFetch:
     def test_fetch_and_store(self, data_svc, tmp_dir):
         mock_df = pd.DataFrame({
             "stock_code": ["600519", "000001"],
+            "date": ["2024-01-02", "2024-01-02"],
             "close": [1705.0, 12.5],
             "volume": [10000, 5000],
         })
@@ -578,5 +293,3 @@ class TestDataServiceFetch:
             health = data_svc.check_source_health()
             assert health["connected"] is True
             assert "checked_at" in health
-
-

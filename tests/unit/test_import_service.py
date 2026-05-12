@@ -76,7 +76,7 @@ def _init_test_db(db_path):
             record_count INTEGER DEFAULT 0,
             start_date DATE,
             end_date DATE,
-            parquet_path TEXT,
+            storage_key TEXT,
             file_size_bytes INTEGER,
             error_message TEXT,
             import_duration_ms INTEGER,
@@ -94,16 +94,10 @@ def svc(tmp_path):
     settings = get_settings()
 
     db_path = str(tmp_path / "test.duckdb")
-    parquet_dir = str(tmp_path / "parquet")
-    cache_dir = str(tmp_path / "cache")
 
     orig_db = settings.database.duckdb_path
-    orig_pq = settings.database.parquet_dir
-    orig_cache = settings.database.cache_dir
 
     settings.database.duckdb_path = db_path
-    settings.database.parquet_dir = parquet_dir
-    settings.database.cache_dir = cache_dir
 
     _init_test_db(db_path)
 
@@ -116,8 +110,6 @@ def svc(tmp_path):
 
     service.close()
     settings.database.duckdb_path = orig_db
-    settings.database.parquet_dir = orig_pq
-    settings.database.cache_dir = orig_cache
 
 
 # ======================================================================
@@ -130,7 +122,7 @@ class TestImportData:
         record = s.import_data("600519", "history", start_date="2024-01-01", end_date="2024-01-31")
         assert record.status == ImportStatus.SUCCESS
         assert record.record_count > 0
-        assert record.parquet_path is not None
+        assert record.storage_key is not None
         assert record.import_duration_ms is not None
 
     def test_import_financial(self, svc):
@@ -138,14 +130,14 @@ class TestImportData:
         record = s.import_data("600519", "financial")
         assert record.status == ImportStatus.SUCCESS
         assert record.record_count == 1
-        assert record.parquet_path is not None
+        assert record.storage_key is not None
 
     def test_import_f10(self, svc):
         s, src = svc
         record = s.import_data("600519", "f10")
         assert record.status == ImportStatus.SUCCESS
         assert record.record_count == 2  # summary + shareholder
-        assert record.parquet_path is not None
+        assert record.storage_key is not None
 
     def test_import_basic(self, svc):
         s, src = svc
@@ -314,16 +306,15 @@ class TestReimportData:
         records = s.get_import_status(symbol="600519", data_type="financial")
         assert len(records) == 1
 
-    def test_reimport_clears_parquet(self, svc):
+    def test_reimport_clears_store(self, svc):
         s, src = svc
         r1 = s.import_data("600519", "financial")
-        assert r1.parquet_path is not None
-        assert Path(r1.parquet_path).exists()
+        assert r1.storage_key is not None
 
         src.fetch_financial.return_value = pd.DataFrame({"revenue": [999]})
         s.reimport_data("600519", "financial")
 
-        # New file should exist
+        # New data should exist in store
         loaded = s.load_from_parquet("600519", data_type="financial")
         assert loaded is not None
         assert loaded.iloc[0]["revenue"] == 999
@@ -341,15 +332,12 @@ class TestReimportData:
 
 
 # ======================================================================
-# TTL mapping
+# Dividend type mapping
 # ======================================================================
 
-class TestTTLMapping:
-    def test_ttl_values(self):
-        assert DataService._ttl_for_type("history") == 3600
-        assert DataService._ttl_for_type("realtime") == 60
-        assert DataService._ttl_for_type("financial") == 3600
-        assert DataService._ttl_for_type("f10") == 3600
-        assert DataService._ttl_for_type("basic") == 3600
-        assert DataService._ttl_for_type("tick") == 300
-        assert DataService._ttl_for_type("unknown") == 300
+class TestDividendMapping:
+    def test_map_dividend_type(self):
+        assert DataService._map_dividend_type("front") == "qfq"
+        assert DataService._map_dividend_type("back") == "hfq"
+        assert DataService._map_dividend_type("none") == "none"
+        assert DataService._map_dividend_type("unknown") == "none"

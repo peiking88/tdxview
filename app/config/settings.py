@@ -14,8 +14,6 @@ import yaml
 class DatabaseConfig(BaseModel):
     """数据库配置"""
     duckdb_path: str = Field(default="data/tdxview.db")
-    parquet_dir: str = Field(default="data/parquet")
-    cache_dir: str = Field(default="data/cache")
     max_connections: int = Field(default=10)
     connection_timeout: int = Field(default=30)
     wal_mode: bool = Field(default=True)
@@ -28,30 +26,12 @@ class TdxDataConfig(BaseModel):
     timeout: int = Field(default=30)
     retry_count: int = Field(default=3)
     rate_limit: int = Field(default=100)
-    cache_ttl: int = Field(default=300)
-
-
-class CacheConfig(BaseModel):
-    """缓存配置"""
-    memory_enabled: bool = Field(default=True)
-    memory_max_size_mb: int = Field(default=100)
-    memory_default_ttl: int = Field(default=300)
-    
-    disk_enabled: bool = Field(default=True)
-    disk_max_size_gb: int = Field(default=10)
-    disk_compression: bool = Field(default=True)
-    
-    query_enabled: bool = Field(default=True)
-    query_ttl: int = Field(default=3600)
-    query_max_items: int = Field(default=1000)
 
 
 class IndicatorConfig(BaseModel):
     """指标配置"""
     builtin_path: str = Field(default="app/utils/indicators")
     custom_path: str = Field(default="plugins/indicators")
-    cache_enabled: bool = Field(default=True)
-    cache_ttl: int = Field(default=600)
     parallel_calculation: bool = Field(default=True)
     max_workers: int = Field(default=4)
 
@@ -124,7 +104,6 @@ class Settings(BaseSettings):
     app: AppConfig = Field(default_factory=AppConfig)
     database: DatabaseConfig = Field(default_factory=DatabaseConfig)
     tdxdata: TdxDataConfig = Field(default_factory=TdxDataConfig)
-    cache: CacheConfig = Field(default_factory=CacheConfig)
     indicators: IndicatorConfig = Field(default_factory=IndicatorConfig)
     security: SecurityConfig = Field(default_factory=SecurityConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
@@ -196,11 +175,9 @@ def validate_config():
     
     # 检查必要目录
     required_dirs = [
-        settings.database.parquet_dir,
-        settings.database.cache_dir,
         Path(settings.logging.file_path).parent
     ]
-    
+
     for dir_path in required_dirs:
         Path(dir_path).mkdir(parents=True, exist_ok=True)
     
@@ -231,7 +208,6 @@ def get_config_summary() -> Dict[str, Any]:
         },
         "database": {
             "path": settings.database.duckdb_path,
-            "parquet_dir": settings.database.parquet_dir
         },
         "tdxdata": {
             "api_url": settings.tdxdata.api_url,

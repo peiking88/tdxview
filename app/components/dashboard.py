@@ -52,8 +52,6 @@ def _get_app_metrics() -> Dict[str, Any]:
     return {
         "db_size_mb": db_size_mb,
         "db_path": str(db_path),
-        "parquet_dir": settings.database.parquet_dir,
-        "cache_dir": settings.database.cache_dir,
         "log_dir": str(Path(settings.logging.file_path).parent),
         "environment": settings.environment,
         "debug": settings.app.debug,
