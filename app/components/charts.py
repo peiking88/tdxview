@@ -57,7 +57,7 @@ def _render_paginated_table(df: pd.DataFrame, key_prefix: str):
             st.rerun()
     with col2:
         st.markdown(
-            f"<div style='text-align:center;padding-top:6px;'>"
+            f"<div class='pagination-text'>"
             f"第 <b>{current_page}</b> / {total_pages} 页  (共 {total} 条)</div>",
             unsafe_allow_html=True,
         )
@@ -83,6 +83,63 @@ def _render_paginated_table(df: pd.DataFrame, key_prefix: str):
         hide_index=True,
         column_config=col_config if col_config else None,
     )
+
+
+def _render_factor_panel(svc: DataService, symbol: str):
+    """展示复权因子信息：按 <日期, 复权因子> 多列展示。"""
+    try:
+        factor_df = svc.get_factor(stock_code=symbol, adjust="qfq")
+    except Exception:
+        factor_df = pd.DataFrame()
+
+    if factor_df is None or factor_df.empty:
+        try:
+            factor_df = svc.get_factor(stock_code=symbol, adjust="hfq")
+        except Exception:
+            factor_df = pd.DataFrame()
+
+    if factor_df is None or factor_df.empty:
+        st.info("暂无复权因子数据")
+        return
+
+    # 摘要指标
+    if "factor" in factor_df.columns:
+        factor_series = factor_df["factor"]
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("最新因子", f"{factor_series.iloc[-1]:.6f}" if len(factor_series) > 0 else "N/A")
+        with col2:
+            st.metric("最早因子", f"{factor_series.iloc[0]:.6f}" if len(factor_series) > 0 else "N/A")
+        with col3:
+            st.metric("数据点数", f"{len(factor_series)}")
+
+    # 按 <日期, 复权因子> 多列展示（每列4对，从新到旧）
+    n_cols = 4
+    if "date" in factor_df.columns:
+        rows = sorted(
+            [{"date": str(d)[:10], "factor": f"{f:.6f}"} for d, f in
+             zip(factor_df["date"], factor_df["factor"])],
+            key=lambda x: x["date"], reverse=True,
+        )
+    else:
+        rows = [{"date": f"#{i}", "factor": f"{f:.6f}"}
+                for i, f in enumerate(factor_df["factor"])]
+
+    # 分块：每块 n_cols 对，按列优先填充
+    chunk_size = n_cols
+    for start in range(0, len(rows), chunk_size):
+        chunk = rows[start:start + chunk_size]
+        cols = st.columns(n_cols)
+        for i in range(n_cols):
+            idx = i
+            if idx < len(chunk):
+                cols[i].markdown(
+                    f'<div class="factor-row">'
+                    f'<span class="factor-label">{chunk[idx]["date"]}</span><br>'
+                    f'<span class="factor-value">{chunk[idx]["factor"]}</span>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
 
 
 def chart_component():
@@ -188,6 +245,7 @@ def chart_component():
 
         df = prepare_kline_data(df)
 
+        # 主区域：图表
         tabs = st.tabs([chart_type])
 
         with tabs[0]:
@@ -215,9 +273,14 @@ def chart_component():
                         except Exception as e:
                             st.error(f"导出失败: {e}")
 
+        # 数据预览
         with st.expander("数据预览"):
             preview_df = _reorder_columns(df)
             _render_paginated_table(preview_df, key_prefix="chart_preview")
+
+        # 复权因子面板
+        with st.expander("复权因子"):
+            _render_factor_panel(svc, sym)
 
 
 def _render_chart(

@@ -89,6 +89,15 @@ class TdxDataSource(DataSourceBase):
     ) -> pd.DataFrame:
         """Fetch historical kline data via tdxdata."""
         self._ensure_api()
+        if period in ("1d", "1m", "5m"):
+            return self._api.fetch_hybrid(
+                stock_list=symbols,
+                start_date=start_date,
+                end_date=end_date,
+                period=period,
+                tdxdir=self._tdxdir,
+                dividend_type=dividend_type,
+            )
         return self._api.fetch_history(
             stock_list=symbols,
             start_date=start_date,
@@ -113,6 +122,15 @@ class TdxDataSource(DataSourceBase):
     ) -> pd.DataFrame:
         """Fetch historical kline data."""
         self._ensure_api()
+        if period in ("1d", "1m", "5m"):
+            return self._api.fetch_hybrid(
+                stock_list=stock_list,
+                start_date=start_date,
+                end_date=end_date,
+                period=period,
+                tdxdir=self._tdxdir,
+                dividend_type=dividend_type,
+            )
         return self._api.fetch_history(
             stock_list=stock_list,
             start_date=start_date,
@@ -166,6 +184,35 @@ class TdxDataSource(DataSourceBase):
         """Fetch ex-rights/ex-dividend data."""
         self._ensure_api()
         return self._api.fetch_basic(stock_code=stock_code, date=date)
+
+    def fetch_factor(
+        self,
+        stock_code: str,
+        adjust: str = "qfq",
+    ) -> pd.DataFrame:
+        """Fetch adjustment factor data (前复权/后复权因子).
+
+        前复权因子归一化：最新日期因子 = 1.0，确保 前复权最新价 = 原始收盘价。
+        """
+        self._ensure_api()
+        result = self._api.fetch_factor(stock_list=[stock_code], adjust=adjust)
+        if isinstance(result, dict):
+            if not result:
+                return pd.DataFrame()
+            frames = []
+            for k, df in result.items():
+                if not isinstance(df, pd.DataFrame) or df.empty:
+                    continue
+                df = df.reset_index()
+                if adjust == "qfq" and "factor" in df.columns:
+                    latest = df["factor"].iloc[-1]
+                    if latest > 0:
+                        df["factor"] = df["factor"] / latest
+                frames.append(df.assign(stock_code=k))
+            return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+        if isinstance(result, pd.DataFrame):
+            return result
+        return pd.DataFrame()
 
     def fetch_local(
         self,
