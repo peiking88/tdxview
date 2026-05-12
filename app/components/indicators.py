@@ -72,7 +72,7 @@ def indicator_component():
         with col1:
             ind_start = st.date_input("开始日期", value=pd.Timestamp("2024-01-01"), key="ind_start")
         with col2:
-            ind_end = st.date_input("结束日期", value=pd.Timestamp("2024-12-31"), key="ind_end")
+            ind_end = st.date_input("结束日期", value=pd.Timestamp.now().date(), key="ind_end")
 
         calculate_btn = st.button("计算指标", use_container_width=True, type="primary")
 
@@ -231,7 +231,13 @@ def _render_separate_chart(df, indicator_key, symbol, display_name, results):
         decreasing_line_color="#ea4335",
     ), row=1, col=1)
 
-    if indicator_key == "macd":
+    if indicator_key == "sma":
+        _add_sma_traces(fig, results, x)
+    elif indicator_key == "ema":
+        _add_ema_traces(fig, results, x)
+    elif indicator_key == "bollinger_bands":
+        _add_bollinger_traces(fig, results, x)
+    elif indicator_key == "macd":
         _add_macd_traces(fig, results, x)
     elif indicator_key == "rsi":
         _add_rsi_traces(fig, results, x)
@@ -307,6 +313,44 @@ def _add_vwap_overlay(fig, results, x):
 # Separate-chart helpers — add indicator traces in bottom subplot (row=2)
 # ---------------------------------------------------------------------------
 
+def _add_sma_traces(fig, results, x):
+    series = _to_series(results.get("sma", []))
+    fig.add_trace(go.Scatter(
+        x=x, y=series,
+        mode="lines", name="SMA", line=dict(width=1.8, color=INDICATOR_COLORS["sma"]),
+    ), row=2, col=1)
+    fig.update_yaxes(title_text="价格", row=2, col=1)
+
+
+def _add_ema_traces(fig, results, x):
+    series = _to_series(results.get("ema", []))
+    fig.add_trace(go.Scatter(
+        x=x, y=series,
+        mode="lines", name="EMA", line=dict(width=1.8, color=INDICATOR_COLORS["ema"]),
+    ), row=2, col=1)
+    fig.update_yaxes(title_text="价格", row=2, col=1)
+
+
+def _add_bollinger_traces(fig, results, x):
+    upper = _to_series(results.get("bb_upper", []))
+    middle = _to_series(results.get("bb_middle", []))
+    lower = _to_series(results.get("bb_lower", []))
+    fig.add_trace(go.Scatter(
+        x=x, y=upper,
+        mode="lines", name="上轨", line=dict(width=1.3, color=INDICATOR_COLORS["bb_upper"]),
+    ), row=2, col=1)
+    fig.add_trace(go.Scatter(
+        x=x, y=middle,
+        mode="lines", name="中轨", line=dict(width=1.5, color=INDICATOR_COLORS["bb_middle"]),
+    ), row=2, col=1)
+    fig.add_trace(go.Scatter(
+        x=x, y=lower,
+        mode="lines", name="下轨", line=dict(width=1.3, color=INDICATOR_COLORS["bb_lower"]),
+        fill="tonexty", fillcolor="rgba(255,152,150,0.08)",
+    ), row=2, col=1)
+    fig.update_yaxes(title_text="价格", row=2, col=1)
+
+
 def _add_macd_traces(fig, results, x):
     macd_line = _to_series(results.get("macd_line", []))
     signal_line = _to_series(results.get("signal_line", []))
@@ -335,7 +379,6 @@ def _add_rsi_traces(fig, results, x):
     ), row=2, col=1)
     fig.add_hline(y=70, line_dash="dash", line_color="red", row=2, col=1)
     fig.add_hline(y=30, line_dash="dash", line_color="green", row=2, col=1)
-    fig.add_hrect(y0=30, y1=70, fillcolor="rgba(128,128,128,0.05)", row=2, col=1)
     fig.update_yaxes(range=[0, 100], row=2, col=1)
 
 

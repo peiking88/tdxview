@@ -43,6 +43,17 @@ def _volume_colors(opens: pd.Series, closes: pd.Series) -> List[str]:
     ]
 
 
+def _missing_date_rangebreaks(dates: pd.Series) -> List[Dict[str, Any]]:
+    values = pd.to_datetime(dates, errors="coerce").dropna().dt.normalize().sort_values().unique()
+    if len(values) < 2:
+        return []
+
+    observed = {pd.Timestamp(d).strftime("%Y-%m-%d") for d in values}
+    full = pd.date_range(values[0], values[-1], freq="D")
+    missing = [d.strftime("%Y-%m-%d") for d in full if d.strftime("%Y-%m-%d") not in observed]
+    return [{"values": missing}] if missing else []
+
+
 # ---------------------------------------------------------------------------
 # Candlestick (K-line)
 # ---------------------------------------------------------------------------
@@ -71,6 +82,7 @@ def create_candlestick(
         fig = go.Figure()
 
     x_data = df["date"] if "date" in df.columns else df.index
+    rangebreaks = _missing_date_rangebreaks(pd.Series(x_data))
 
     # --- Candlestick trace ---
     candle = go.Candlestick(
@@ -162,12 +174,13 @@ def create_candlestick(
     layout_overrides = {"title": title or "K线图"}
     if has_vol:
         fig.update_layout(**_default_layout(**layout_overrides))
+        fig.update_xaxes(rangebreaks=rangebreaks)
         fig.update_xaxes(rangeslider_visible=False, row=1, col=1)
         fig.update_yaxes(title_text="价格", row=1, col=1)
         fig.update_yaxes(title_text="成交量", row=2, col=1)
     else:
         fig.update_layout(**_default_layout(**layout_overrides))
-        fig.update_xaxes(rangeslider_visible=False)
+        fig.update_xaxes(rangeslider_visible=False, rangebreaks=rangebreaks)
 
     return fig
 
