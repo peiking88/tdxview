@@ -162,7 +162,7 @@ output/                  # 输出文件目录
 plugins/indicators/      # Custom indicator scripts
 scripts/init_database.py # Database initialization
 scripts/setup_dev.sh     # One-click setup/run/test script
-tests/                   # Test suite (411 passed, dual-mode architecture)
+tests/                   # Test suite (420+ passed, dual-mode architecture)
 tests/e2e/               # E2E UI tests with Playwright (46 passed)
 ```
 

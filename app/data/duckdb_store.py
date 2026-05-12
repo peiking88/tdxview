@@ -217,6 +217,13 @@ class DuckDBStore:
         for i, (_, row) in enumerate(df.iterrows()):
             date_val = row.get("date") or row.get("trade_date")
             time_val = row.get("time") or row.get("trade_time")
+            # tdxdata returns 'datetime' column (e.g. "2026-05-12 09:25:00")
+            dt_val = row.get("datetime")
+            if dt_val is not None and date_val is None:
+                dt_str = str(dt_val)
+                date_val = dt_str[:10]
+                if time_val is None:
+                    time_val = dt_str
             if time_val is None:
                 # 无 time 列时用行号构造唯一时间戳
                 time_val = f"{str(date_val)[:10]} 00:00:{i:02d}" if date_val is not None else None
@@ -236,8 +243,9 @@ class DuckDBStore:
         for i, (_, row) in enumerate(df.iterrows()):
             row_dict = {k: self._pyval(v) for k, v in row.items() if k != date_col}
             date_val = row.get(date_col) or row.get("date")
-            # 如果 date_val 不是有效日期字符串，用行号生成唯一键
-            date_str = str(date_val)[:10] if date_val is not None else f"1970-01-{i+1:02d}"
+            # Fallback: use row index as synthetic date, capped at day 28
+            fallback_day = (i % 28) + 1
+            date_str = str(date_val)[:10] if date_val is not None else f"1970-01-{fallback_day:02d}"
             self._db.execute(
                 f"INSERT OR REPLACE INTO {table} (symbol, {date_col}, data) VALUES (?, ?, ?)",
                 [symbol, date_str,

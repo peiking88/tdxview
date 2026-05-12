@@ -247,7 +247,7 @@ class TestDataServiceFetch:
     def test_get_history_stores_to_duckdb(self, data_svc):
         mock_df = pd.DataFrame({
             "stock_code": ["600519"],
-            "date": ["2024-01-02"],
+            "date": ["2024-01-31"],
             "open": [1700.0], "high": [1710.0], "low": [1695.0],
             "close": [1705.0], "volume": [10000],
         })
@@ -263,7 +263,7 @@ class TestDataServiceFetch:
             df1 = data_svc.get_history(["600519"], "2024-01-01", "2024-01-31", use_cache=True)
             assert call_count == 1
 
-            # Second call — should load from DuckDB without fetching
+            # Second call — stored data covers end_date, no additional fetch
             df2 = data_svc.get_history(["600519"], "2024-01-01", "2024-01-31", use_cache=True)
             assert call_count == 1  # no additional fetch
 

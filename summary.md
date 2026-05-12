@@ -1,7 +1,31 @@
 # 工作摘要
 
-**版本:** 1.3.0
+**版本:** 1.4.0
 **时间:** 2026-05-12
+
+## v1.4.0 增量数据获取与数据格式修复
+
+修复 DuckDB 存储数据未覆盖请求日期范围时不再获取新数据的问题，以及 tick/basic 数据格式兼容性。
+
+### 核心改动
+
+- `get_history()` 增量检查：DuckDB 数据最新日期 < end_date 时，只获取缺失日期范围并合并去重
+- `_save_tick()` 支持 tdxdata 返回的 `datetime` 列格式（如 "2026-05-12 09:25:00"）
+- `_save_json_table()` 回退日期溢出修复（`i % 28 + 1`，避免 "1970-01-32"）
+- `get_basic()` 从 `date` 列合成 `ex_date` 作为 DuckDB 主键
+
+### tdxdata 联动
+
+- `DailyBasicSource.fetch()` 合成 `date` 列（从 year/month/day），删除原始三列
+- 版本升级至 0.6.0
+
+### 测试
+
+- 单元测试 + 集成测试：411 passed, 9 skipped
+- tdxdata：236 passed
+- 覆盖率：>85%
+
+---
 
 ## v1.3.0 去掉缓存层，改用 DuckDB 作为唯一本地存储
 

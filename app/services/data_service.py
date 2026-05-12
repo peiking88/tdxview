@@ -193,12 +193,18 @@ class DataService:
         dividend_type: str = "front",
         use_cache: bool = True,
     ) -> pd.DataFrame:
-        """Get historical kline data, checking DuckDB first."""
-        dividend = self._map_dividend_type(dividend_type)
+        """Get historical kline data, checking DuckDB first.
 
-        # Try loading each symbol from DuckDB
+        If stored data doesn't cover up to end_date, fetches the missing
+        tail incrementally and merges.
+        """
+        dividend = self._map_dividend_type(dividend_type)
+        end_dt = pd.Timestamp(end_date)
+
+        # Load from DuckDB per symbol; track what needs incremental fetch
         stored_parts = []
-        missing_symbols = []
+        fetch_jobs: List[Tuple[str, str]] = []  # (symbol, fetch_start_date)
+
         for symbol in symbols:
             stored = self._store.load(
                 symbol, data_type="history", period=period,
@@ -207,44 +213,59 @@ class DataService:
             if stored is not None and not stored.empty:
                 stored["stock_code"] = symbol
                 stored_parts.append(stored)
+                # Check if stored data covers up to end_date
+                latest = pd.to_datetime(stored["date"]).max()
+                if latest < end_dt:
+                    next_day = (latest + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
+                    fetch_jobs.append((symbol, next_day))
             else:
-                missing_symbols.append(symbol)
+                fetch_jobs.append((symbol, start_date))
 
-        if not missing_symbols:
+        if not fetch_jobs:
             return pd.concat(stored_parts, ignore_index=True) if stored_parts else pd.DataFrame()
 
-        # Fetch missing symbols from source
-        df = self.source.fetch_history(
-            stock_list=missing_symbols,
-            start_date=start_date,
-            end_date=end_date,
-            period=period,
-            dividend_type=dividend_type,
-        )
+        # Group by fetch_start_date to batch remote calls
+        from collections import defaultdict
+        groups: Dict[str, List[str]] = defaultdict(list)
+        for sym, s in fetch_jobs:
+            groups[s].append(sym)
 
-        df = self._clean_kline_data(df)
+        fetched_parts = []
+        for fetch_start, syms in groups.items():
+            df = self.source.fetch_history(
+                stock_list=syms,
+                start_date=fetch_start,
+                end_date=end_date,
+                period=period,
+                dividend_type=dividend_type,
+            )
+            df = self._clean_kline_data(df)
 
-        # Save each symbol to DuckDB
-        if not df.empty:
-            if "stock_code" in df.columns:
-                for symbol, group in df.groupby("stock_code"):
+            if not df.empty:
+                if "stock_code" in df.columns:
+                    for sym, group in df.groupby("stock_code"):
+                        self._store.save(
+                            group, str(sym), data_type="history",
+                            period=period, dividend=dividend,
+                        )
+                else:
+                    sym = syms[0] if len(syms) == 1 else "multi"
                     self._store.save(
-                        group, str(symbol), data_type="history",
+                        df, sym, data_type="history",
                         period=period, dividend=dividend,
                     )
-            else:
-                symbol = missing_symbols[0] if len(missing_symbols) == 1 else "multi"
-                self._store.save(
-                    df, symbol, data_type="history",
-                    period=period, dividend=dividend,
-                )
+                fetched_parts.append(df)
 
-        # Merge stored + fetched results
-        if stored_parts and not df.empty:
-            return pd.concat(stored_parts + [df], ignore_index=True)
-        if stored_parts:
-            return pd.concat(stored_parts, ignore_index=True)
-        return df
+        # Merge stored + fetched, deduplicate by date per symbol
+        all_parts = stored_parts + fetched_parts
+        if not all_parts:
+            return pd.DataFrame()
+        merged = pd.concat(all_parts, ignore_index=True)
+        if "date" in merged.columns and "stock_code" in merged.columns:
+            merged["date"] = pd.to_datetime(merged["date"])
+            merged = merged.drop_duplicates(subset=["stock_code", "date"], keep="last")
+            merged = merged.sort_values(["stock_code", "date"]).reset_index(drop=True)
+        return merged
 
     # ------------------------------------------------------------------
     # Realtime quotes
@@ -398,6 +419,13 @@ class DataService:
 
         if not df.empty:
             df = df.loc[:, ~df.columns.duplicated()]
+            # Synthesize ex_date from year/month/day columns if missing
+            if "ex_date" not in df.columns and all(c in df.columns for c in ("year", "month", "day")):
+                df["ex_date"] = (
+                    df["year"].astype(str) + "-" +
+                    df["month"].astype(str).str.zfill(2) + "-" +
+                    df["day"].astype(str).str.zfill(2)
+                )
             self._store.save(df, stock_code, date=date, data_type="basic")
 
         return df
