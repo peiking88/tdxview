@@ -22,9 +22,9 @@ def init_database():
     
     print(f"初始化数据库: {db_path}")
     
-    # 确保缓存目录存在
-    cache_dir = Path(settings.database.cache_dir)
-    cache_dir.mkdir(parents=True, exist_ok=True)
+    # 确保数据库目录存在
+    db_dir = Path(db_path).parent
+    db_dir.mkdir(parents=True, exist_ok=True)
     
     import duckdb
     
@@ -561,7 +561,7 @@ def init_database():
     
     print("=" * 50)
     print(f"数据库文件: {db_path}")
-    print(f"缓存目录: {cache_dir}")
+    print(f"数据库目录: {db_dir}")
     print("\n默认管理员账户:")
     print("  用户名: admin")
     print("  密码: admin123")
