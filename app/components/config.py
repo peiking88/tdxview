@@ -63,7 +63,7 @@ def _read_log_lines(log_path: str, n: int = 200) -> List[str]:
 
 def config_component():
     """Render the system configuration page."""
-    st.header("系统配置")
+    st.header("系统管理")
 
     tab_ds, tab_storage, tab_log, tab_sys = st.tabs(
         ["数据源管理", "存储管理", "日志查看", "系统信息"]
@@ -172,6 +172,106 @@ def _render_storage_config():
         except Exception as e:
             st.error(f"优化失败: {e}")
 
+    # --- Data table viewer ---
+    st.markdown("---")
+    _render_table_viewer(db)
+
+
+# ======================================================================
+# Data table viewer
+# ======================================================================
+
+_DATA_TABLES = {
+    "kline": "K线",
+    "tick": "逐笔",
+    "financial": "财务",
+    "f10": "F10",
+    "factor": "复权因子",
+    "basic": "除权除息",
+    "realtime": "实时行情",
+    "data_imports": "导入记录",
+}
+
+_MAX_PREVIEW_ROWS = 1000
+
+
+def _render_table_viewer(db: DatabaseManager):
+    """查看 DuckDB 数据表内容，支持过滤。"""
+    st.subheader("查看数据表")
+
+    col_table, col_code, col_period, col_kw = st.columns([2, 2, 2, 3])
+    with col_table:
+        table_options = [f"{k} ({v})" for k, v in _DATA_TABLES.items()]
+        selected = st.selectbox("选择表", options=table_options, index=0, key="table_viewer_select")
+        table_name = selected.split(" (")[0]
+    with col_code:
+        code_filter = st.text_input("代码过滤", placeholder="如 600519", key="table_viewer_code")
+    with col_period:
+        period_filter = st.selectbox(
+            "周期过滤", options=["全部", "1d", "1w", "1mon", "1m", "5m", "15m", "30m", "1h"],
+            index=0, key="table_viewer_period",
+        )
+    with col_kw:
+        keyword = st.text_input("关键字", placeholder="模糊搜索所有文本列", key="table_viewer_kw")
+
+    # 获取列信息
+    try:
+        cols_df = db.fetch_df(f"DESCRIBE {table_name}")
+        col_names = cols_df.iloc[:, 0].tolist()
+    except Exception as e:
+        st.error(f"无法读取表结构: {e}")
+        return
+
+    # 构建 SQL
+    conditions = []
+    params: list = []
+
+    if code_filter and "symbol" in col_names:
+        conditions.append("symbol LIKE ?")
+        params.append(f"%{code_filter}%")
+
+    if table_name == "kline" and period_filter != "全部" and "period" in col_names:
+        conditions.append("period = ?")
+        params.append(period_filter)
+
+    if keyword:
+        text_cols = [c for c in col_names if c not in ("open", "high", "low", "close", "volume", "amount", "factor")]
+        like_parts = " OR ".join([f'CAST("{c}" AS VARCHAR) LIKE ?' for c in text_cols])
+        conditions.append(f"({like_parts})")
+        params.extend([f"%{keyword}%"] * len(text_cols))
+
+    where = f" WHERE {' AND '.join(conditions)}" if conditions else ""
+
+    # 确定排序列：优先日期列降序
+    date_col = None
+    for dc in ("trade_date", "ex_date", "report_date", "imported_at", "updated_at"):
+        if dc in col_names:
+            date_col = dc
+            break
+    order = f' ORDER BY "{date_col}" DESC' if date_col else ""
+
+    sql = f'SELECT * FROM {table_name}{where}{order} LIMIT {_MAX_PREVIEW_ROWS}'
+
+    try:
+        df = db.fetch_df(sql, params or None)
+    except Exception as e:
+        st.error(f"查询失败: {e}")
+        return
+
+    if df.empty:
+        st.info("无匹配数据")
+        return
+
+    # 价位列格式化
+    price_cols = {"open", "high", "low", "close", "amount", "price", "prev_close"}
+    col_config = {}
+    for col in df.columns:
+        if col.lower() in price_cols:
+            col_config[col] = st.column_config.NumberColumn(format="%.2f")
+
+    st.caption(f"共 {len(df)} 行（最多显示 {_MAX_PREVIEW_ROWS} 行）")
+    st.dataframe(df, use_container_width=True, hide_index=True, column_config=col_config or None)
+
 
 # ======================================================================
 # Tab 3: Log Viewer
@@ -244,7 +344,7 @@ def _render_log_viewer():
 
 def _render_system_info():
     """Display system configuration summary and reload controls."""
-    st.subheader("系统配置信息")
+    st.subheader("系统管理信息")
     settings = get_settings()
 
     config_summary = {

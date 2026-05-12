@@ -249,7 +249,7 @@ def _render_overview():
         df_sources = pd.DataFrame(sources)
         st.dataframe(df_sources, use_container_width=True, hide_index=True)
     else:
-        st.info("暂无数据源配置。请在「系统配置」页面添加。")
+        st.info("暂无数据源配置。请在「系统管理」页面添加。")
 
     # Refresh button
     if st.button("刷新状态", key="refresh_overview"):

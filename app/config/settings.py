@@ -80,7 +80,7 @@ class LoggingConfig(BaseModel):
 class AppConfig(BaseModel):
     """应用配置"""
     name: str = Field(default="tdxview")
-    version: str = Field(default="1.4.1")
+    version: str = Field(default="1.5.0")
     debug: bool = Field(default=False)
     host: str = Field(default="0.0.0.0")
     port: int = Field(default=8501)

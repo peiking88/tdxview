@@ -7,7 +7,7 @@ pytestmark = pytest.mark.critical
 NAV_ITEMS = [
     ("图表分析", "图表分析"),
     ("技术指标", "技术指标"),
-    ("系统配置", "系统配置"),
+    ("系统管理", "系统管理"),
 ]
 
 
@@ -33,9 +33,9 @@ class TestNavigation:
 
     def test_navigation_remembers_current_page(self, page):
         sidebar = page.locator("[data-testid='stSidebar']")
-        sidebar.get_by_role("button", name="系统配置").click()
+        sidebar.get_by_role("button", name="系统管理").click()
         page.wait_for_load_state("domcontentloaded", timeout=15000)
-        expect(page.get_by_role("heading", name="系统配置")).to_be_visible()
+        expect(page.get_by_role("heading", name="系统管理")).to_be_visible()
 
         sidebar.get_by_role("button", name="图表分析").click()
         page.wait_for_load_state("domcontentloaded", timeout=15000)

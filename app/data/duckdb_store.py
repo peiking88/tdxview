@@ -287,13 +287,20 @@ class DuckDBStore:
     def _save_realtime(self, df: pd.DataFrame, symbol: str):
         for _, row in df.iterrows():
             sym = row.get("stock_code") or row.get("symbol") or row.get("code") or symbol
+            price = row.get("close") or row.get("price")
+            prev_close = row.get("pre_close") or row.get("prev_close")
+            chg = None
+            chg_pct = None
+            if price is not None and prev_close is not None and pd.notna(price) and pd.notna(prev_close) and prev_close != 0:
+                chg = float(price) - float(prev_close)
+                chg_pct = chg / float(prev_close) * 100
             self._db.execute(
                 "INSERT OR REPLACE INTO realtime "
                 "(symbol, price, change, change_pct, open, high, low, prev_close, volume, amount, updated_at) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 [
-                    sym, row.get("price"), row.get("change"), row.get("change_pct") or row.get("change_percent"),
-                    row.get("open"), row.get("high"), row.get("low"), row.get("prev_close"),
+                    sym, price, chg, chg_pct,
+                    row.get("open"), row.get("high"), row.get("low"), prev_close,
                     row.get("volume"), row.get("amount"), datetime.now().isoformat(),
                 ],
             )
