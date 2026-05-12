@@ -48,6 +48,138 @@ class DataService:
         return self._source
 
     # ------------------------------------------------------------------
+    # Data quality: cleaning & continuity
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _clean_kline_data(df: pd.DataFrame) -> pd.DataFrame:
+        """Remove anomalous rows from kline data.
+
+        For each numeric field (volume, OHLC), compute the median of
+        positive values as the baseline, then keep rows within
+        [median * 0.1, median * 10].  Also enforces high >= low.
+
+        When multiple stock_codes are present, cleaning is applied per
+        symbol to respect different price levels.
+        """
+        if df.empty:
+            return df
+
+        # Multi-symbol: clean each group independently
+        if "stock_code" in df.columns:
+            parts = []
+            for _, group in df.groupby("stock_code"):
+                parts.append(DataService._clean_single(group))
+            if not parts:
+                return df.iloc[:0]
+            return pd.concat(parts, ignore_index=True)
+
+        return DataService._clean_single(df)
+
+    @staticmethod
+    def _clean_single(df: pd.DataFrame) -> pd.DataFrame:
+        """Clean a single-symbol kline DataFrame."""
+        if df.empty:
+            return df
+
+        mask = pd.Series(True, index=df.index)
+
+        # Volume: [median * 0.1, median * 10]
+        if "volume" in df.columns:
+            vol = pd.to_numeric(df["volume"], errors="coerce")
+            median_vol = vol[vol > 0].median()
+            if pd.notna(median_vol) and median_vol > 0:
+                mask &= (vol >= median_vol * 0.1) & (vol <= median_vol * 10)
+
+        # OHLC: gather all prices, compute unified median
+        price_vals = []
+        for col in ("open", "high", "low", "close"):
+            if col in df.columns:
+                vals = pd.to_numeric(df[col], errors="coerce")
+                price_vals.extend(vals[vals > 0].dropna().tolist())
+        if price_vals:
+            median_price = pd.Series(price_vals).median()
+            if pd.notna(median_price) and median_price > 0:
+                lo = median_price * 0.1
+                hi = median_price * 10
+                for col in ("open", "high", "low", "close"):
+                    if col in df.columns:
+                        vals = pd.to_numeric(df[col], errors="coerce")
+                        mask &= ((vals >= lo) & (vals <= hi)) | vals.isna()
+
+        # High >= Low
+        if "high" in df.columns and "low" in df.columns:
+            high = pd.to_numeric(df["high"], errors="coerce")
+            low = pd.to_numeric(df["low"], errors="coerce")
+            mask &= (high >= low) | high.isna() | low.isna()
+
+        return df.loc[mask].reset_index(drop=True)
+
+    @staticmethod
+    def check_continuity(df: pd.DataFrame) -> Dict[str, Any]:
+        """Check data continuity and return a report.
+
+        Returns dict with:
+          - total: total row count
+          - valid: rows passing all checks
+          - issues: list of issue descriptions
+          - date_gaps: list of (gap_start, gap_end, missing_days) tuples
+        """
+        report: Dict[str, Any] = {
+            "total": len(df),
+            "valid": len(df),
+            "issues": [],
+            "date_gaps": [],
+        }
+        if df.empty or "date" not in df.columns:
+            return report
+
+        dates = pd.to_datetime(df["date"]).sort_values().reset_index(drop=True)
+        report["date_range"] = (str(dates.iloc[0].date()), str(dates.iloc[-1].date()))
+
+        # 1. Date gaps (> 1 calendar day = missing trading day)
+        if len(dates) > 1:
+            diffs = dates.diff().dropna()
+            large_gaps = diffs[diffs > pd.Timedelta(days=1)]
+            for idx in large_gaps.index:
+                gap_start = dates.iloc[idx - 1]
+                gap_end = dates.iloc[idx]
+                missing = (gap_end - gap_start).days - 1
+                report["date_gaps"].append((
+                    str(gap_start.date()), str(gap_end.date()), missing,
+                ))
+            if report["date_gaps"]:
+                report["issues"].append(
+                    f"发现 {len(report['date_gaps'])} 处大于1天的日期间隔"
+                )
+
+        # 2. OHLC relationship: high >= low
+        ohlc_issues = 0
+        if all(c in df.columns for c in ("high", "low")):
+            bad = df[pd.to_numeric(df["high"], errors="coerce")
+                     < pd.to_numeric(df["low"], errors="coerce")]
+            ohlc_issues = len(bad)
+        if ohlc_issues:
+            report["issues"].append(f"{ohlc_issues} 行 high < low")
+            report["valid"] -= ohlc_issues
+
+        # 3. Duplicate dates
+        if "date" in df.columns:
+            dup_count = df["date"].duplicated().sum()
+            if dup_count:
+                report["issues"].append(f"{dup_count} 个重复日期")
+                report["valid"] -= dup_count
+
+        # 4. Negative volume
+        if "volume" in df.columns:
+            neg_vol = (pd.to_numeric(df["volume"], errors="coerce") < 0).sum()
+            if neg_vol:
+                report["issues"].append(f"{neg_vol} 行成交量为负")
+                report["valid"] -= neg_vol
+
+        return report
+
+    # ------------------------------------------------------------------
     # TTL mapping
     # ------------------------------------------------------------------
 
@@ -96,6 +228,8 @@ class DataService:
             period=period,
             dividend_type=dividend_type,
         )
+
+        df = self._clean_kline_data(df)
 
         if use_cache and not df.empty:
             self._cache.set(cache_key, json.loads(df.to_json(orient="columns", date_format="iso")))
@@ -232,6 +366,41 @@ class DataService:
                 return pd.DataFrame(cached)
 
         df = self.source.fetch_basic(stock_code=stock_code, date=date)
+
+        if use_cache and not df.empty:
+            df = df.loc[:, ~df.columns.duplicated()]
+            self._cache.set(
+                cache_key,
+                json.loads(df.to_json(orient="columns", date_format="iso")),
+                ttl=self._ttl_for_type("basic"),
+            )
+
+        return df
+
+    def get_factor(
+        self,
+        stock_code: str,
+        adjust: str = "qfq",
+        use_cache: bool = True,
+    ) -> pd.DataFrame:
+        """Get adjustment factor data.
+
+        Args:
+            stock_code: stock code, e.g. "600519"
+            adjust: "qfq" (前复权), "hfq" (后复权)
+            use_cache: whether to use cache
+
+        Returns:
+            DataFrame with factor data.
+        """
+        cache_key = generate_cache_key("factor", {"code": stock_code, "adjust": adjust})
+
+        if use_cache:
+            cached = self._cache.get(cache_key)
+            if cached is not None:
+                return pd.DataFrame(cached)
+
+        df = self.source.fetch_factor(stock_code=stock_code, adjust=adjust)
 
         if use_cache and not df.empty:
             df = df.loc[:, ~df.columns.duplicated()]

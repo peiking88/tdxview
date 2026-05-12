@@ -274,7 +274,7 @@ class TestDefaultView:
     def test_default_view_fallback(self, tmp_db):
         register_user("noview", "Pass!123")
         user = get_user_by_username("noview")
-        assert get_default_view(user["id"]) == "dashboard"
+        assert get_default_view(user["id"]) == "charts"
 
 
 class TestConfigImportExport:

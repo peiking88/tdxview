@@ -339,6 +339,6 @@ def set_default_view(user_id: int, page: str) -> bool:
 
 
 def get_default_view(user_id: int) -> str:
-    """Get the user's default landing page (defaults to 'dashboard')."""
+    """Get the user's default landing page (defaults to 'charts')."""
     prefs = get_user_preferences(user_id)
-    return prefs.get("default_page", "dashboard")
+    return prefs.get("default_page", "charts")

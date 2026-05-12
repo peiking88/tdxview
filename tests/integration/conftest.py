@@ -90,8 +90,11 @@ def _init_db(tmp_db_path):
             config    TEXT NOT NULL,
             enabled   BOOLEAN DEFAULT TRUE,
             priority  INTEGER DEFAULT 1,
+            last_checked TIMESTAMP,
+            error_count INTEGER DEFAULT 0,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(name, type)
         )
     """)
 

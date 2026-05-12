@@ -11,9 +11,6 @@ STREAMLIT_PORT = 8901
 BASE_URL = f"http://localhost:{STREAMLIT_PORT}"
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 
-TEST_USERNAME = "e2e_tester"
-TEST_PASSWORD = "Test!1234"
-
 SYSTEM_CHROMIUM = "/snap/bin/chromium"
 
 
@@ -49,40 +46,8 @@ def _wait_for_streamlit_server(port: int, timeout: int = 60):
     return False
 
 
-def _ensure_test_user():
-    os.chdir(PROJECT_ROOT)
-    if PROJECT_ROOT not in sys.path:
-        sys.path.insert(0, PROJECT_ROOT)
-
-    from app.data.database import DatabaseManager
-    from app.services.user_service import hash_password
-
-    db_path = os.path.join(PROJECT_ROOT, "data", "tdxview.db")
-    db = DatabaseManager(db_path=db_path)
-    try:
-        row = db.fetch_one(
-            "SELECT id FROM users WHERE username = ?", [TEST_USERNAME]
-        )
-        if row:
-            db.execute(
-                "UPDATE users SET password_hash = ?, is_active = TRUE WHERE username = ?",
-                [hash_password(TEST_PASSWORD), TEST_USERNAME],
-            )
-        else:
-            db.execute(
-                "INSERT INTO users (username, email, password_hash, role, is_active, preferences) "
-                "VALUES (?, ?, ?, 'admin', TRUE, ?)",
-                [TEST_USERNAME, "e2e@test.com", hash_password(TEST_PASSWORD), "{}"],
-            )
-        db.connection.commit()
-    finally:
-        db.close()
-
-
 @pytest.fixture(scope="session")
 def streamlit_server():
-    _ensure_test_user()
-
     env = os.environ.copy()
     env["STREAMLIT_SERVER_HEADLESS"] = "true"
     env["STREAMLIT_BROWSER_GATHER_USAGE_STATS"] = "false"
@@ -126,14 +91,6 @@ def page(context: BrowserContext) -> Page:
         "[data-testid='stAppViewContainer']", timeout=20000,
     )
     yield pg
-
-
-@pytest.fixture
-def authed_page(page: Page) -> Page:
-    from tests.e2e.pages.login_page import LoginPage
-    login = LoginPage(page)
-    login.login(TEST_USERNAME, TEST_PASSWORD)
-    yield page
 
 
 def wait_for_streamlit(page: Page, timeout: int = 15000):

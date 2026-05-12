@@ -1,0 +1,164 @@
+"""
+Unit tests for Config component, Data Management helpers, and CacheManager stats.
+"""
+
+import tempfile
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+import pandas as pd
+import pytest
+
+from app.data.cache import MemoryCache, DiskCache, CacheManager
+
+
+# ===========================================================================
+# Config component helper functions
+# ===========================================================================
+
+class TestConfigDataSources:
+    """Test config component data source helpers."""
+
+    def test_list_sources(self):
+        from app.components.config import _list_sources
+
+        mock_ds = MagicMock()
+        mock_ds.list_data_sources.return_value = [
+            {"id": 1, "name": "src1", "type": "tdx", "config": {}, "enabled": True, "priority": 1}
+        ]
+        with patch("app.components.config.DataService", return_value=mock_ds):
+            result = _list_sources()
+            assert len(result) == 1
+            assert result[0]["name"] == "src1"
+
+    def test_update_source(self):
+        from app.components.config import _update_source
+
+        mock_ds = MagicMock()
+        mock_ds.update_data_source.return_value = True
+        with patch("app.components.config.DataService", return_value=mock_ds):
+            result = _update_source(1, enabled=False)
+            assert result is True
+
+    def test_delete_source(self):
+        from app.components.config import _delete_source
+
+        mock_ds = MagicMock()
+        mock_ds.delete_data_source.return_value = True
+        with patch("app.components.config.DataService", return_value=mock_ds):
+            result = _delete_source(1)
+            assert result is True
+
+    def test_check_source_health(self):
+        from app.components.config import _check_source_health
+
+        mock_ds = MagicMock()
+        mock_ds.check_source_health.return_value = {"connected": True, "checked_at": "2026-01-01T00:00:00"}
+        with patch("app.components.config.DataService", return_value=mock_ds):
+            result = _check_source_health()
+            assert result["connected"] is True
+
+
+class TestLogViewer:
+    """Test log viewer helpers."""
+
+    def test_read_log_lines_existing_file(self, tmp_path):
+        from app.components.config import _read_log_lines
+
+        log_file = tmp_path / "test.log"
+        log_file.write_text("line1\nline2\nline3\n", encoding="utf-8")
+        lines = _read_log_lines(str(log_file), n=2)
+        assert len(lines) == 2
+        assert "line2" in lines[0]
+        assert "line3" in lines[1]
+
+    def test_read_log_lines_missing_file(self, tmp_path):
+        from app.components.config import _read_log_lines
+
+        lines = _read_log_lines(str(tmp_path / "nonexistent.log"))
+        assert lines == []
+
+    def test_read_log_lines_empty_file(self, tmp_path):
+        from app.components.config import _read_log_lines
+
+        log_file = tmp_path / "empty.log"
+        log_file.write_text("", encoding="utf-8")
+        lines = _read_log_lines(str(log_file))
+        assert lines == []
+
+    def test_read_log_lines_n_greater_than_file(self, tmp_path):
+        from app.components.config import _read_log_lines
+
+        log_file = tmp_path / "short.log"
+        log_file.write_text("only_line\n", encoding="utf-8")
+        lines = _read_log_lines(str(log_file), n=100)
+        assert len(lines) == 1
+
+
+# ===========================================================================
+# Data Management component helper functions
+# ===========================================================================
+
+class TestDataManagementHelpers:
+    """Test data management component functions (non-Streamlit parts)."""
+
+    def test_parquet_list_symbols(self, tmp_path):
+        """Test that ParquetManager can list saved symbols."""
+        from app.data.parquet_manager import ParquetManager
+
+        pm = ParquetManager(parquet_dir=str(tmp_path / "pq"))
+        df = pd.DataFrame({"close": [1.0, 2.0], "volume": [100, 200]})
+        pm.save(df, "000001", "2026-01")
+
+        import pyarrow.parquet as pq
+        pq_files = list(Path(tmp_path / "pq").rglob("*.parquet"))
+        symbols = [p.stem for p in pq_files]
+        assert "000001" in symbols
+
+    def test_parquet_load_roundtrip(self, tmp_path):
+        """Test ParquetManager save and load roundtrip."""
+        from app.data.parquet_manager import ParquetManager
+
+        pm = ParquetManager(parquet_dir=str(tmp_path / "pq"))
+        df = pd.DataFrame({"close": [1.0, 2.0, 3.0], "volume": [100, 200, 300]})
+        pm.save(df, "600519", "2026-01")
+
+        loaded = pm.load("600519", "2026-01")
+        assert loaded is not None
+        assert len(loaded) == 3
+        assert list(loaded["close"]) == [1.0, 2.0, 3.0]
+
+    def test_parquet_delete(self, tmp_path):
+        """Test ParquetManager delete."""
+        from app.data.parquet_manager import ParquetManager
+
+        pm = ParquetManager(parquet_dir=str(tmp_path / "pq"))
+        df = pd.DataFrame({"close": [1.0]})
+        pm.save(df, "000002", "2026-02")
+        pm.delete("000002", "2026-02")
+        assert pm.load("000002", "2026-02") is None
+
+
+# ===========================================================================
+# CacheManager integration (Phase 5 cache stats in config)
+# ===========================================================================
+
+class TestCacheManagerStats:
+    """Test CacheManager statistics used by config component."""
+
+    def test_memory_count(self):
+        cm = CacheManager()
+        cm.memory.set("k1", "v1")
+        cm.memory.set("k2", "v2")
+        assert cm.memory.count == 2
+
+    def test_memory_size(self):
+        cm = CacheManager()
+        cm.memory.set("k1", "a" * 1000, size=1000)
+        assert cm.memory.size >= 1000
+
+    def test_clear_all(self):
+        cm = CacheManager()
+        cm.memory.set("k1", "v1")
+        cm.clear()
+        assert cm.memory.count == 0

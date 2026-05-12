@@ -16,7 +16,6 @@ from app.config.settings import get_settings
 from app.components.charts import chart_component
 from app.components.indicators import indicator_component
 from app.components.config import config_component
-from app.components.data_management import data_management_component
 
 # 页面配置
 st.set_page_config(
@@ -32,10 +31,15 @@ st.set_page_config(
 
         基于tdxdata的历史数据分析和技术指标计算平台。
 
-        版本: 1.1.0
+        版本: 1.2.0
         """
     }
 )
+
+# 加载全局暗色主题 CSS
+_css_path = Path(__file__).parent / "static" / "style.css"
+if _css_path.exists():
+    st.markdown(f"<style>{_css_path.read_text()}</style>", unsafe_allow_html=True)
 
 # 应用设置
 settings = get_settings()
@@ -46,78 +50,91 @@ def main():
     if "current_page" not in st.session_state:
         st.session_state.current_page = "charts"
 
-    # 应用标题
-    st.title("📈 tdxview 数据可视化平台")
-    st.markdown("---")
-
     # 侧边栏导航
     with st.sidebar:
         st.markdown(
-            '<div style="text-align:center;padding:10px 0;">'
-            '<svg width="180" height="52" viewBox="0 0 180 52" xmlns="http://www.w3.org/2000/svg">'
+            '<div style="text-align:center;padding:16px 0 10px 0;margin-top:-30px">'
+            '<svg width="280" height="90" viewBox="0 0 280 90" xmlns="http://www.w3.org/2000/svg">'
             '<defs>'
-            '<linearGradient id="logoGrad" x1="0%" y1="0%" x2="100%" y2="100%">'
-            '<stop offset="0%" style="stop-color:#1a73e8;stop-opacity:1"/>'
-            '<stop offset="100%" style="stop-color:#0d47a1;stop-opacity:1"/>'
-            '</linearGradient>'
-            '<linearGradient id="chartGrad" x1="0%" y1="100%" x2="0%" y2="0%">'
-            '<stop offset="0%" style="stop-color:#1a73e8;stop-opacity:0.15"/>'
-            '<stop offset="100%" style="stop-color:#1a73e8;stop-opacity:0.02"/>'
-            '</linearGradient>'
+            '  <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">'
+            '    <stop offset="0%" stop-color="#1a56db"/>'
+            '    <stop offset="100%" stop-color="#3b82f6"/>'
+            '  </linearGradient>'
+            '  <linearGradient id="area" x1="0" y1="1" x2="0" y2="0">'
+            '    <stop offset="0%" stop-color="#1a56db" stop-opacity="0.3"/>'
+            '    <stop offset="100%" stop-color="#3b82f6" stop-opacity="0.02"/>'
+            '  </linearGradient>'
             '</defs>'
-            '<rect x="0" y="6" width="40" height="40" rx="10" fill="url(#logoGrad)"/>'
-            '<polyline points="6,38 13,30 20,34 27,18 34,22" fill="none" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>'
-            '<polygon points="6,38 13,30 20,34 27,18 34,22 34,40 6,40" fill="url(#chartGrad)"/>'
-            '<circle cx="34" cy="22" r="2.5" fill="#4fc3f7"/>'
-            '<text x="48" y="24" fill="#1a73e8" font-size="22" font-family="Segoe UI,Arial,sans-serif" font-weight="700" letter-spacing="-0.5">tdx</text>'
-            '<text x="95" y="24" fill="#5f6368" font-size="22" font-family="Segoe UI,Arial,sans-serif" font-weight="300" letter-spacing="-0.5">view</text>'
-            '<text x="48" y="42" fill="#80868b" font-size="10" font-family="Segoe UI,Arial,sans-serif" font-weight="400" letter-spacing="2">DATA INSIGHTS</text>'
+            ''
+            '<!-- Logo Icon (72x72) -->'
+            '<rect x="0" y="4" width="72" height="72" rx="18" fill="url(#bg)"/>'
+            ''
+            '<!-- Grid lines -->'
+            '<line x1="16" y1="22" x2="56" y2="22" stroke="white" stroke-opacity="0.12" stroke-width="0.8"/>'
+            '<line x1="16" y1="35" x2="56" y2="35" stroke="white" stroke-opacity="0.12" stroke-width="0.8"/>'
+            '<line x1="16" y1="48" x2="56" y2="48" stroke="white" stroke-opacity="0.12" stroke-width="0.8"/>'
+            '<line x1="16" y1="61" x2="56" y2="61" stroke="white" stroke-opacity="0.12" stroke-width="0.8"/>'
+            ''
+            '<!-- Candlestick 1 (green) -->'
+            '<line x1="22" y1="28" x2="22" y2="60" stroke="#34d399" stroke-width="1.2"/>'
+            '<rect x="18.5" y="35" width="7" height="15" rx="1.5" fill="#34d399"/>'
+            ''
+            '<!-- Candlestick 2 (red) -->'
+            '<line x1="36" y1="25" x2="36" y2="58" stroke="#f87171" stroke-width="1.2"/>'
+            '<rect x="32.5" y="30" width="7" height="18" rx="1.5" fill="#f87171"/>'
+            ''
+            '<!-- Candlestick 3 (green, tall breakout) -->'
+            '<line x1="50" y1="18" x2="50" y2="62" stroke="#34d399" stroke-width="1.2"/>'
+            '<rect x="46.5" y="24" width="7" height="24" rx="1.5" fill="#34d399"/>'
+            ''
+            '<!-- Area fill -->'
+            '<polygon points="22,50 36,48 50,48 50,65 36,65 22,65" fill="url(#area)"/>'
+            ''
+            '<!-- Title -->'
+            '<text x="84" y="40" fill="#111827" font-size="36" font-family="system-ui,-apple-system,sans-serif" font-weight="800" letter-spacing="-1.5">tdx</text>'
+            '<text x="152" y="40" fill="#6b7280" font-size="36" font-family="system-ui,-apple-system,sans-serif" font-weight="200" letter-spacing="-1.5">view</text>'
+            ''
+            '<!-- Tagline -->'
+            '<text x="84" y="66" fill="#9ca3af" font-size="12" font-family="system-ui,-apple-system,sans-serif" font-weight="500" letter-spacing="4">DATA INSIGHTS</text>'
+            ''
             '</svg></div>',
             unsafe_allow_html=True,
         )
-        st.caption("数据驱动决策")
 
-        # 导航菜单
-        st.markdown("### 导航")
-        pages = ["图表分析", "技术指标", "数据管理", "系统配置"]
-        page_index = pages.index(st.session_state.current_page) if st.session_state.current_page in pages else 0
-        page = st.radio(
-            "选择页面",
-            pages,
-            index=page_index,
-            label_visibility="collapsed",
-        )
-
-        page_mapping = {
-            "图表分析": "charts",
-            "技术指标": "indicators",
-            "数据管理": "data_management",
-            "系统配置": "config",
-        }
-        st.session_state.current_page = page_mapping.get(page, "charts")
+        # 导航菜单 — 水平平铺按钮
+        pages = [
+            ("图表分析", "charts", "📊"),
+            ("技术指标", "indicators", "📐"),
+            ("系统配置", "config", "⚙️"),
+        ]
+        page_names = [p[0] for p in pages]
+        cols = st.columns(len(pages))
+        for i, (label, key, icon) in enumerate(pages):
+            with cols[i]:
+                is_active = st.session_state.current_page == key
+                btn_type = "primary" if is_active else "secondary"
+                if st.button(f"{icon} {label}", key=f"nav_{key}", use_container_width=True, type=btn_type):
+                    st.session_state.current_page = key
+                    st.rerun()
 
     # 主内容区域
     if st.session_state.current_page == "charts":
         chart_component()
     elif st.session_state.current_page == "indicators":
         indicator_component()
-    elif st.session_state.current_page == "data_management":
-        data_management_component()
     elif st.session_state.current_page == "config":
         config_component()
 
     # 页脚
     st.markdown("---")
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        st.markdown(f"**版本**: {settings.app.version}")
-
-    with col2:
-        st.markdown("**环境**: 开发" if settings.app.debug else "**环境**: 生产")
-
-    with col3:
-        st.markdown("**状态**: 🟢 运行中")
+    st.markdown(
+        f'<div class="app-footer">'
+        f'<strong>tdxview</strong> {settings.app.version}  ·  '
+        f'{"开发环境" if settings.app.debug else "生产环境"}  ·  '
+        f'运行中'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
 
 def initialize_app():
     """初始化应用"""

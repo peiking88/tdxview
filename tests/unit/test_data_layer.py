@@ -361,7 +361,7 @@ class TestTdxDataSource:
 
         source = TdxDataSource.__new__(TdxDataSource)
         mock_api = MagicMock()
-        mock_api.fetch_history.return_value = pd.DataFrame({"close": [10]})
+        mock_api.fetch_hybrid.return_value = pd.DataFrame({"close": [10]})
         source._api = mock_api
         source._connected = True
         source._server = None
@@ -373,7 +373,7 @@ class TestTdxDataSource:
             start_date="2024-01-01",
             end_date="2024-06-30",
         )
-        mock_api.fetch_history.assert_called_once()
+        mock_api.fetch_hybrid.assert_called_once()
         assert len(result) == 1
 
     def test_fetch_realtime_delegates(self):

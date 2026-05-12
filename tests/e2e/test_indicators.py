@@ -20,44 +20,44 @@ INDICATORS = [
 
 
 class TestIndicators:
-    def test_indicator_page_loads(self, authed_page):
-        bp = BasePage(authed_page)
+    def test_indicator_page_loads(self, page):
+        bp = BasePage(page)
         bp.navigate_to("技术指标")
         bp.wait_for_rerun()
-        expect(authed_page.get_by_role("heading", name="技术指标")).to_be_visible()
+        expect(page.get_by_role("heading", name="技术指标")).to_be_visible()
 
-    def test_sidebar_indicator_settings(self, authed_page):
-        bp = BasePage(authed_page)
+    def test_sidebar_indicator_settings(self, page):
+        bp = BasePage(page)
         bp.navigate_to("技术指标")
         bp.wait_for_rerun()
-        sidebar = authed_page.locator("[data-testid='stSidebar']")
+        sidebar = page.locator("[data-testid='stSidebar']")
         expect(sidebar.get_by_text("指标设置")).to_be_visible()
 
     @pytest.mark.parametrize("indicator", INDICATORS)
-    def test_each_indicator_no_error(self, authed_page, indicator):
-        ind = IndicatorsPage(authed_page)
-        bp = BasePage(authed_page)
+    def test_each_indicator_no_error(self, page, indicator):
+        ind = IndicatorsPage(page)
+        bp = BasePage(page)
         bp.navigate_to("技术指标")
         bp.wait_for_rerun()
         ind.select_indicator(indicator)
         ind.set_symbol("600519")
         ind.calculate()
-        expect(authed_page.get_by_text("NameError")).to_be_hidden()
-        expect(authed_page.get_by_text("KeyError")).to_be_hidden()
+        expect(page.get_by_text("NameError")).to_be_hidden()
+        expect(page.get_by_text("KeyError")).to_be_hidden()
 
-    def test_overlay_toggle_exists(self, authed_page):
-        ind = IndicatorsPage(authed_page)
-        bp = BasePage(authed_page)
+    def test_overlay_toggle_exists(self, page):
+        ind = IndicatorsPage(page)
+        bp = BasePage(page)
         bp.navigate_to("技术指标")
         bp.wait_for_rerun()
         ind.select_indicator("SMA 简单移动平均线")
         expect(
-            authed_page.locator("[data-testid='stSidebar']").get_by_text("叠加到K线")
+            page.locator("[data-testid='stSidebar']").get_by_text("叠加到K线")
         ).to_be_visible()
 
-    def test_indicator_switch_no_stale_state(self, authed_page):
-        ind = IndicatorsPage(authed_page)
-        bp = BasePage(authed_page)
+    def test_indicator_switch_no_stale_state(self, page):
+        ind = IndicatorsPage(page)
+        bp = BasePage(page)
         bp.navigate_to("技术指标")
         bp.wait_for_rerun()
 
@@ -68,13 +68,13 @@ class TestIndicators:
         ind.select_indicator("MACD")
         ind.set_symbol("600519")
         ind.calculate()
-        expect(authed_page.get_by_text("NameError")).to_be_hidden()
-        expect(authed_page.get_by_text("KeyError")).to_be_hidden()
+        expect(page.get_by_text("NameError")).to_be_hidden()
+        expect(page.get_by_text("KeyError")).to_be_hidden()
 
-    def test_indicator_info_display(self, authed_page):
-        ind = IndicatorsPage(authed_page)
-        bp = BasePage(authed_page)
+    def test_indicator_info_display(self, page):
+        ind = IndicatorsPage(page)
+        bp = BasePage(page)
         bp.navigate_to("技术指标")
         bp.wait_for_rerun()
         ind.select_indicator("SMA 简单移动平均线")
-        expect(authed_page.get_by_text("类别:")).to_be_visible()
+        expect(page.get_by_text("类别:")).to_be_visible()

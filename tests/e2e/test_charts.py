@@ -9,35 +9,35 @@ pytestmark = pytest.mark.regression
 
 
 class TestCharts:
-    def test_kline_render(self, authed_page):
-        bp = BasePage(authed_page)
+    def test_kline_render(self, page):
+        bp = BasePage(page)
         bp.navigate_to("图表分析")
         bp.wait_for_rerun()
-        charts = ChartsPage(authed_page)
+        charts = ChartsPage(page)
         charts.query_stock("600519")
         # Either data loaded (plotly chart) or still fetching (button visible)
-        chart = authed_page.locator("[data-testid='stPlotlyChart']").first
-        assert chart.is_visible() or authed_page.get_by_text("获取数据").is_visible()
+        chart = page.locator("[data-testid='stPlotlyChart']").first
+        assert chart.is_visible() or page.get_by_text("获取数据").is_visible()
 
-    def test_empty_code_warning(self, authed_page):
-        bp = BasePage(authed_page)
+    def test_empty_code_warning(self, page):
+        bp = BasePage(page)
         bp.navigate_to("图表分析")
         bp.wait_for_rerun()
-        charts = ChartsPage(authed_page)
+        charts = ChartsPage(page)
         charts.query_stock("")
         charts.expect_no_chart()
 
-    def test_chart_heading_visible(self, authed_page):
-        bp = BasePage(authed_page)
+    def test_chart_heading_visible(self, page):
+        bp = BasePage(page)
         bp.navigate_to("图表分析")
         bp.wait_for_rerun()
-        expect(authed_page.get_by_role("heading", name="图表分析")).to_be_visible()
+        expect(page.get_by_role("heading", name="图表分析")).to_be_visible()
 
-    def test_sidebar_chart_settings(self, authed_page):
-        bp = BasePage(authed_page)
+    def test_sidebar_chart_settings(self, page):
+        bp = BasePage(page)
         bp.navigate_to("图表分析")
         bp.wait_for_rerun()
-        sidebar = authed_page.locator("[data-testid='stSidebar']")
+        sidebar = page.locator("[data-testid='stSidebar']")
         expect(sidebar.get_by_text("图表设置")).to_be_visible()
         expect(
             sidebar.locator('input[aria-label="股票代码"]')

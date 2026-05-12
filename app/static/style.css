@@ -1,0 +1,252 @@
+/* ==========================================================================
+   tdxview — Light Theme (Clean & Elegant)
+   ======================================================================== */
+
+/* --- Sidebar --- */
+[data-testid="stSidebar"] {
+    background-color: #f8f9fb !important;
+    border-right: 1px solid #e5e7eb;
+}
+
+/* Sidebar section headers */
+[data-testid="stSidebar"] h3 {
+    color: #6b7280 !important;
+    font-size: 0.7rem !important;
+    font-weight: 700 !important;
+    text-transform: uppercase !important;
+    letter-spacing: 1.5px !important;
+    margin-bottom: 0.75rem !important;
+    padding-bottom: 0.5rem !important;
+    border-bottom: 1px solid #e5e7eb;
+}
+
+/* Sidebar radio labels (navigation) */
+[data-testid="stSidebar"] [data-testid="stRadio"] label {
+    color: #374151 !important;
+    font-size: 0.9rem !important;
+    padding: 4px 0;
+}
+
+[data-testid="stSidebar"] [data-testid="stRadio"] label:hover {
+    color: #1a56db !important;
+}
+
+/* --- Typography --- */
+h1 {
+    font-size: 1.4rem !important;
+    font-weight: 700 !important;
+    color: #111827 !important;
+    letter-spacing: -0.3px;
+}
+
+h2 {
+    font-size: 1.1rem !important;
+    font-weight: 600 !important;
+    color: #1f2937 !important;
+}
+
+h3 {
+    color: #374151 !important;
+    font-size: 0.95rem !important;
+}
+
+/* --- Metric cards --- */
+[data-testid="stMetricValue"] {
+    font-size: 1.2rem !important;
+    font-weight: 600 !important;
+    color: #111827 !important;
+}
+
+[data-testid="stMetricLabel"] {
+    color: #6b7280 !important;
+    font-size: 0.78rem !important;
+}
+
+/* --- Inputs --- */
+.stTextInput input,
+.stNumberInput input,
+.stDateInput input {
+    border-radius: 6px !important;
+    border-color: #d1d5db !important;
+}
+
+.stTextInput input:focus,
+.stDateInput input:focus {
+    border-color: #1a56db !important;
+    box-shadow: 0 0 0 2px rgba(26, 86, 219, 0.12) !important;
+}
+
+/* --- Buttons --- */
+.stButton > button[kind="primary"] {
+    border-radius: 6px !important;
+    font-weight: 500 !important;
+}
+
+.stButton > button:not([kind="primary"]) {
+    border-radius: 6px !important;
+    border-color: #d1d5db !important;
+}
+
+/* --- Tabs --- */
+.stTabs [data-baseweb="tab-list"] {
+    gap: 0 !important;
+    border-bottom: 1px solid #e5e7eb !important;
+}
+
+.stTabs [data-baseweb="tab"] {
+    color: #6b7280 !important;
+    font-size: 0.85rem !important;
+    padding: 0.5rem 1rem !important;
+    border-bottom: 2px solid transparent !important;
+}
+
+.stTabs [data-baseweb="tab"]:hover {
+    color: #374151 !important;
+}
+
+.stTabs [data-baseweb="tab"][aria-selected="true"] {
+    color: #1a56db !important;
+    border-bottom-color: #1a56db !important;
+}
+
+/* --- Form --- */
+[data-testid="stForm"] {
+    border: 1px solid #e5e7eb !important;
+    border-radius: 8px !important;
+    padding: 1rem !important;
+    background-color: #fafbfc !important;
+}
+
+/* --- Dataframes --- */
+.stDataFrame {
+    border: 1px solid #e5e7eb !important;
+    border-radius: 6px !important;
+}
+
+/* --- Status messages --- */
+.stSuccess {
+    background-color: #f0fdf4 !important;
+    border-color: #bbf7d0 !important;
+    color: #166534 !important;
+}
+
+.stError {
+    background-color: #fef2f2 !important;
+    border-color: #fecaca !important;
+    color: #991b1b !important;
+}
+
+.stWarning {
+    background-color: #fffbeb !important;
+    border-color: #fde68a !important;
+    color: #92400e !important;
+}
+
+.stInfo {
+    background-color: #eff6ff !important;
+    border-color: #bfdbfe !important;
+    color: #1e40af !important;
+}
+
+/* --- Horizontal rule --- */
+hr {
+    border-color: #e5e7eb !important;
+    margin: 1.2rem 0 !important;
+}
+
+/* --- Code block --- */
+.stCode {
+    border: 1px solid #e5e7eb !important;
+    border-radius: 6px !important;
+}
+
+/* --- Pagination text --- */
+.pagination-text {
+    text-align: center;
+    padding-top: 6px;
+    color: #6b7280;
+    font-size: 0.85rem;
+}
+
+.pagination-text b {
+    color: #374151;
+}
+
+/* --- Footer --- */
+.app-footer {
+    color: #9ca3af;
+    font-size: 0.78rem;
+    text-align: center;
+    padding: 0.8rem 0;
+}
+
+.app-footer strong {
+    color: #6b7280;
+}
+
+/* --- Factor panel card --- */
+.factor-panel {
+    background: #f8f9fb;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    padding: 16px 20px;
+}
+
+.factor-panel h3 {
+    font-size: 0.85rem !important;
+    font-weight: 700 !important;
+    color: #374151 !important;
+    letter-spacing: 0.5px;
+    margin: 0 0 12px 0 !important;
+    padding-bottom: 8px !important;
+    border-bottom: 1px solid #e5e7eb;
+}
+
+.factor-row {
+    padding: 8px 12px;
+    margin-bottom: 6px;
+    background: #ffffff;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    text-align: center;
+}
+
+.factor-label {
+    color: #6b7280;
+    font-size: 0.78rem;
+    display: block;
+    margin-bottom: 2px;
+}
+
+.factor-value {
+    font-weight: 600;
+    color: #111827;
+    font-variant-numeric: tabular-nums;
+    font-size: 0.92rem;
+    display: block;
+}
+
+.factor-note {
+    color: #9ca3af;
+    font-size: 0.75rem;
+    text-align: center;
+    padding: 16px 0 4px 0;
+}
+
+/* --- Scrollbar --- */
+::-webkit-scrollbar {
+    width: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #d1d5db;
+    border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #9ca3af;
+}

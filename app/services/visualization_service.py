@@ -27,8 +27,8 @@ def _default_layout(**overrides: Any) -> Dict[str, Any]:
         "margin": {"l": 60, "r": 30, "t": 40, "b": 50},
         "autosize": True,
         "height": 500,
-        "xaxis": {"showgrid": True, "gridcolor": "#e8e8e8"},
-        "yaxis": {"showgrid": True, "gridcolor": "#e8e8e8"},
+        "xaxis": {"showgrid": True, "gridcolor": "#f0f0f0"},
+        "yaxis": {"showgrid": True, "gridcolor": "#f0f0f0"},
         "hovermode": "x unified",
     }
     layout.update(overrides)
@@ -489,7 +489,7 @@ def create_gauge_chart(
         title={"text": title},
         gauge={
             "axis": {"range": [min_val, max_val]},
-            "bar": {"color": "#1f77b4"},
+            "bar": {"color": "#1a56db"},
             "steps": steps,
         },
     ))

@@ -36,7 +36,6 @@ _SETTINGS_PATCH_TARGETS = [
     "app.data.sources.tdxdata_source.get_settings",
     "app.components.dashboard.get_settings",
     "app.components.config.get_settings",
-    "app.components.data_management.get_settings",
     "app.components.auth.get_settings",
     "app.utils.indicators.custom.get_settings",
     "app.main.get_settings",
