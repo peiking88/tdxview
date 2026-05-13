@@ -29,7 +29,7 @@ def login_component():
         with st.form("login_form"):
             username = st.text_input("用户名", placeholder="输入用户名")
             password = st.text_input("密码", type="password", placeholder="输入密码")
-            login_button = st.form_submit_button("登录", use_container_width=True)
+            login_button = st.form_submit_button("登录", width='stretch')
 
         if login_button:
             user = user_service.authenticate_user(username, password)
@@ -55,7 +55,7 @@ def login_component():
             new_email = st.text_input("邮箱 (可选)", placeholder="your@email.com", key="reg_email")
             new_password = st.text_input("密码", type="password", placeholder="至少8位，含特殊字符", key="reg_pw")
             new_password2 = st.text_input("确认密码", type="password", key="reg_pw2")
-            register_button = st.form_submit_button("注册", use_container_width=True)
+            register_button = st.form_submit_button("注册", width='stretch')
 
         if register_button:
             if new_password != new_password2:

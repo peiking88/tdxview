@@ -95,7 +95,7 @@ def main():
             with cols[i]:
                 is_active = st.session_state.current_page == key
                 btn_type = "primary" if is_active else "secondary"
-                if st.button(label, key=f"nav_{key}", use_container_width=True, type=btn_type):
+                if st.button(label, key=f"nav_{key}", width='stretch', type=btn_type):
                     st.session_state.current_page = key
                     st.rerun()
 
@@ -118,6 +118,14 @@ def main():
         unsafe_allow_html=True,
     )
 
+@st.cache_resource
+def _init_database_once():
+    """初始化数据库（仅首次运行，后续调用返回缓存结果）"""
+    from scripts.init_database import init_database
+    init_database()
+    return True
+
+
 def initialize_app():
     """初始化应用"""
     # 检查必要目录
@@ -126,28 +134,11 @@ def initialize_app():
     for directory in [log_dir]:
         directory.mkdir(parents=True, exist_ok=True)
 
-    # 初始化数据库（如果表不存在）
-    db_path = Path(settings.database.duckdb_path)
-    needs_init = True
-    if db_path.exists():
-        try:
-            import duckdb
-            conn = duckdb.connect(str(db_path), read_only=True)
-            tables = [r[0] for r in conn.execute("SELECT table_name FROM information_schema.tables WHERE table_schema = 'main'").fetchall()]
-            conn.close()
-            required = {"users", "data_sources", "indicators", "dashboards"}
-            needs_init = not required.issubset(set(tables))
-            if not needs_init and "data_imports" not in tables:
-                needs_init = True
-        except Exception:
-            needs_init = True
-
-    if needs_init:
-        try:
-            from scripts.init_database import init_database
-            init_database()
-        except Exception as e:
-            st.error(f"数据库初始化失败: {e}")
+    # 初始化数据库（st.cache_resource + IF NOT EXISTS 保证幂等）
+    try:
+        _init_database_once()
+    except Exception as e:
+        st.error(f"数据库初始化失败: {e}")
 
 if __name__ == "__main__":
     # 初始化应用

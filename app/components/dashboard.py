@@ -19,6 +19,15 @@ import plotly.express as px
 from app.config.settings import get_settings
 from app.data.database import DatabaseManager
 
+_db_cache: Optional[DatabaseManager] = None
+
+
+def _get_db() -> DatabaseManager:
+    global _db_cache
+    if _db_cache is None:
+        _db_cache = DatabaseManager()
+    return _db_cache
+
 
 # ---------------------------------------------------------------------------
 # System monitoring helpers
@@ -60,7 +69,7 @@ def _get_app_metrics() -> Dict[str, Any]:
 
 def _get_data_source_status() -> List[Dict[str, Any]]:
     """Get status of all configured data sources."""
-    db = DatabaseManager()
+    db = _get_db()
     try:
         rows = db.fetch_all(
             "SELECT id, name, type, enabled, last_checked, error_count FROM data_sources ORDER BY priority"
@@ -79,7 +88,7 @@ def _get_data_source_status() -> List[Dict[str, Any]]:
 # ---------------------------------------------------------------------------
 
 def _list_dashboards(user_id: int) -> List[Dict[str, Any]]:
-    db = DatabaseManager()
+    db = _get_db()
     try:
         rows = db.fetch_all(
             "SELECT id, name, description, is_default, created_at FROM dashboards WHERE user_id = ? ORDER BY id",
@@ -94,7 +103,7 @@ def _list_dashboards(user_id: int) -> List[Dict[str, Any]]:
 
 
 def _create_dashboard(user_id: int, name: str, description: str = "") -> bool:
-    db = DatabaseManager()
+    db = _get_db()
     try:
         existing = db.fetch_one(
             "SELECT id FROM dashboards WHERE user_id = ? AND name = ?", [user_id, name]
@@ -114,7 +123,7 @@ def _create_dashboard(user_id: int, name: str, description: str = "") -> bool:
 
 
 def _delete_dashboard(dashboard_id: int) -> bool:
-    db = DatabaseManager()
+    db = _get_db()
     try:
         db.execute("DELETE FROM dashboards WHERE id = ?", [dashboard_id])
         db.connection.commit()
@@ -227,10 +236,10 @@ def _render_overview():
     col_g1, col_g2 = st.columns(2)
     with col_g1:
         fig_cpu = _gauge_chart("CPU 使用率", cpu, thresholds.get("cpu_percent", 80))
-        st.plotly_chart(fig_cpu, use_container_width=True)
+        st.plotly_chart(fig_cpu, width='stretch')
     with col_g2:
         fig_mem = _gauge_chart("内存使用率", mem, thresholds.get("memory_percent", 80))
-        st.plotly_chart(fig_mem, use_container_width=True)
+        st.plotly_chart(fig_mem, width='stretch')
 
     # --- App info ---
     st.subheader("应用信息")
@@ -247,7 +256,7 @@ def _render_overview():
     sources = _get_data_source_status()
     if sources:
         df_sources = pd.DataFrame(sources)
-        st.dataframe(df_sources, use_container_width=True, hide_index=True)
+        st.dataframe(df_sources, width='stretch', hide_index=True)
     else:
         st.info("暂无数据源配置。请在「系统管理」页面添加。")
 

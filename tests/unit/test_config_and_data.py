@@ -24,7 +24,7 @@ class TestConfigDataSources:
         mock_ds.list_data_sources.return_value = [
             {"id": 1, "name": "src1", "type": "tdx", "config": {}, "enabled": True, "priority": 1}
         ]
-        with patch("app.components.config.DataService", return_value=mock_ds):
+        with patch("app.components.config._get_data_service", return_value=mock_ds):
             result = _list_sources()
             assert len(result) == 1
             assert result[0]["name"] == "src1"
@@ -34,7 +34,7 @@ class TestConfigDataSources:
 
         mock_ds = MagicMock()
         mock_ds.update_data_source.return_value = True
-        with patch("app.components.config.DataService", return_value=mock_ds):
+        with patch("app.components.config._get_data_service", return_value=mock_ds):
             result = _update_source(1, enabled=False)
             assert result is True
 
@@ -43,7 +43,7 @@ class TestConfigDataSources:
 
         mock_ds = MagicMock()
         mock_ds.delete_data_source.return_value = True
-        with patch("app.components.config.DataService", return_value=mock_ds):
+        with patch("app.components.config._get_data_service", return_value=mock_ds):
             result = _delete_source(1)
             assert result is True
 
@@ -52,7 +52,7 @@ class TestConfigDataSources:
 
         mock_ds = MagicMock()
         mock_ds.check_source_health.return_value = {"connected": True, "checked_at": "2026-01-01T00:00:00"}
-        with patch("app.components.config.DataService", return_value=mock_ds):
+        with patch("app.components.config._get_data_service", return_value=mock_ds):
             result = _check_source_health()
             assert result["connected"] is True
 

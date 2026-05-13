@@ -16,6 +16,15 @@ from jose import JWTError, jwt
 from app.config.settings import get_settings
 from app.data.database import DatabaseManager
 
+_db_instance: Optional[DatabaseManager] = None
+
+
+def _get_db() -> DatabaseManager:
+    global _db_instance
+    if _db_instance is None:
+        _db_instance = DatabaseManager()
+    return _db_instance
+
 # ---------------------------------------------------------------------------
 # Password hashing
 # ---------------------------------------------------------------------------
@@ -89,7 +98,7 @@ def register_user(
     if not username or len(username) < 3:
         return False, "Username must be at least 3 characters"
 
-    db = DatabaseManager()
+    db = _get_db()
     try:
         # Check uniqueness
         existing = db.fetch_one("SELECT id FROM users WHERE username = ?", [username])
@@ -119,7 +128,7 @@ def authenticate_user(username: str, password: str) -> Optional[Dict[str, Any]]:
     if not username or not password:
         return None
 
-    db = DatabaseManager()
+    db = _get_db()
     try:
         row = db.fetch_one(
             "SELECT id, username, email, password_hash, role, is_active FROM users WHERE username = ?",
@@ -151,7 +160,7 @@ def authenticate_user(username: str, password: str) -> Optional[Dict[str, Any]]:
 
 def get_user_by_id(user_id: int) -> Optional[Dict[str, Any]]:
     """Fetch a user by ID."""
-    db = DatabaseManager()
+    db = _get_db()
     row = db.fetch_one(
         "SELECT id, username, email, role, is_active, preferences FROM users WHERE id = ?",
         [user_id],
@@ -170,7 +179,7 @@ def get_user_by_id(user_id: int) -> Optional[Dict[str, Any]]:
 
 def get_user_by_username(username: str) -> Optional[Dict[str, Any]]:
     """Fetch a user by username."""
-    db = DatabaseManager()
+    db = _get_db()
     row = db.fetch_one(
         "SELECT id, username, email, role, is_active, preferences FROM users WHERE username = ?",
         [username],
@@ -189,7 +198,7 @@ def get_user_by_username(username: str) -> Optional[Dict[str, Any]]:
 
 def list_users() -> List[Dict[str, Any]]:
     """List all users (admin utility)."""
-    db = DatabaseManager()
+    db = _get_db()
     rows = db.fetch_all("SELECT id, username, email, role, is_active FROM users ORDER BY id")
     return [
         {"id": r[0], "username": r[1], "email": r[2], "role": r[3], "is_active": r[4]}
@@ -199,7 +208,7 @@ def list_users() -> List[Dict[str, Any]]:
 
 def update_user_role(user_id: int, role: str) -> bool:
     """Update a user's role."""
-    db = DatabaseManager()
+    db = _get_db()
     db.execute("UPDATE users SET role = ? WHERE id = ?", [role, user_id])
     db.connection.commit()
     return True
@@ -207,7 +216,7 @@ def update_user_role(user_id: int, role: str) -> bool:
 
 def deactivate_user(user_id: int) -> bool:
     """Deactivate a user account."""
-    db = DatabaseManager()
+    db = _get_db()
     db.execute("UPDATE users SET is_active = FALSE WHERE id = ?", [user_id])
     db.connection.commit()
     return True
@@ -251,7 +260,7 @@ def get_user_preferences(user_id: int) -> Dict[str, Any]:
 
 def set_user_preferences(user_id: int, preferences: Dict[str, Any]) -> bool:
     """Overwrite a user's preferences JSON."""
-    db = DatabaseManager()
+    db = _get_db()
     db.execute(
         "UPDATE users SET preferences = ? WHERE id = ?",
         [json.dumps(preferences, ensure_ascii=False), user_id],
@@ -274,7 +283,7 @@ def export_user_config(user_id: int) -> Optional[Dict[str, Any]]:
     if not user:
         return None
 
-    db = DatabaseManager()
+    db = _get_db()
 
     # Dashboards
     dash_rows = db.fetch_all(
@@ -303,7 +312,7 @@ def export_user_config(user_id: int) -> Optional[Dict[str, Any]]:
 
 def import_user_config(user_id: int, config: Dict[str, Any]) -> Tuple[bool, str]:
     """Import user configuration from a portable dict."""
-    db = DatabaseManager()
+    db = _get_db()
     try:
         # Restore preferences
         if "preferences" in config:

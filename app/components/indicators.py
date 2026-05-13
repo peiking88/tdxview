@@ -6,10 +6,20 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-from typing import Dict, Any, List
+from typing import Any, Dict, List, Optional
 
 from app.services.indicator_service import IndicatorService, INDICATOR_REGISTRY
 from app.services.visualization_service import create_candlestick
+from app.services.data_service import DataService
+
+_data_service_cache: Optional[DataService] = None
+
+
+def _get_data_service() -> DataService:
+    global _data_service_cache
+    if _data_service_cache is None:
+        _data_service_cache = DataService()
+    return _data_service_cache
 
 INDICATOR_COLORS = {
     "sma": "#ff7f0e",
@@ -31,8 +41,16 @@ def indicator_component():
 
     svc = IndicatorService()
 
+    # ---- 侧边栏：与图表分析页保持一致的布局 ----
     with st.sidebar:
         st.markdown("### 指标设置")
+
+        symbol = st.text_input("股票代码", value="600519", key="ind_symbol")
+        col1, col2 = st.columns(2)
+        with col1:
+            ind_start = st.date_input("开始日期", value=pd.Timestamp("2024-01-01"), key="ind_start")
+        with col2:
+            ind_end = st.date_input("结束日期", value=pd.Timestamp.now().date(), key="ind_end")
 
         all_indicators = svc.list_indicators()
         categories = sorted(set(ind["category"] for ind in all_indicators))
@@ -67,14 +85,7 @@ def indicator_component():
         if overlay_supported:
             overlay_enabled = st.checkbox("叠加到K线", value=True)
 
-        symbol = st.text_input("股票代码", value="600519", key="ind_symbol")
-        col1, col2 = st.columns(2)
-        with col1:
-            ind_start = st.date_input("开始日期", value=pd.Timestamp("2024-01-01"), key="ind_start")
-        with col2:
-            ind_end = st.date_input("结束日期", value=pd.Timestamp.now().date(), key="ind_end")
-
-        calculate_btn = st.button("计算指标", use_container_width=True, type="primary")
+        calculate_btn = st.button("计算指标", width='stretch', type="primary")
 
     if not indicator_key:
         st.info("请从左侧选择一个技术指标。")
@@ -100,8 +111,7 @@ def indicator_component():
         if calculate_btn:
             with st.spinner("正在获取数据并计算指标..."):
                 try:
-                    from app.services.data_service import DataService
-                    data_svc = DataService()
+                    data_svc = _get_data_service()
                     df = data_svc.get_history(
                         symbols=[symbol],
                         start_date=str(ind_start),
@@ -210,7 +220,7 @@ def _render_overlay_chart(df, indicator_key, symbol, display_name, results, para
     elif indicator_key == "vwap":
         _add_vwap_overlay(fig, results, x)
 
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width='stretch')
 
 
 def _render_separate_chart(df, indicator_key, symbol, display_name, results):
@@ -257,7 +267,7 @@ def _render_separate_chart(df, indicator_key, symbol, display_name, results):
     )
     fig.update_xaxes(rangeslider_visible=False, row=1, col=1)
 
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width='stretch')
 
 
 # ---------------------------------------------------------------------------

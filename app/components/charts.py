@@ -79,7 +79,7 @@ def _render_paginated_table(df: pd.DataFrame, key_prefix: str):
 
     st.dataframe(
         page_df,
-        use_container_width=True,
+        width='stretch',
         hide_index=True,
         column_config=col_config if col_config else None,
     )
@@ -198,7 +198,7 @@ def chart_component():
             ma_periods = ma_checked
             bollinger_enabled = st.checkbox("布林带叠加", value=False)
 
-        fetch_btn = st.button("获取数据", use_container_width=True, type="primary")
+        fetch_btn = st.button("获取数据", width='stretch', type="primary")
 
     chart_type_map = {
         "K线图": "candlestick",
@@ -251,7 +251,7 @@ def chart_component():
         with tabs[0]:
             fig = _render_chart(df, selected_type, sym, ma_periods, bollinger_enabled)
             if fig is not None:
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width='stretch')
 
                 col1, col2 = st.columns(2)
                 with col1:

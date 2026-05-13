@@ -245,3 +245,18 @@ Edit `config.yaml` to customize:
 ## License
 
 MIT
+
+### 2026-05-13 17:30:05
+```
+ app/components/auth.py             |  4 ++--
+ app/components/charts.py           |  6 +++---
+ app/components/config.py           | 36 +++++++++++++++++++++++++-----------
+ app/components/dashboard.py        | 23 ++++++++++++++++-------
+ app/components/indicators.py       | 36 +++++++++++++++++++++++-------------
+ app/data/duckdb_store.py           |  8 +++++---
+ app/main.py                        | 37 ++++++++++++++-----------------------
+ app/services/user_service.py       | 29 +++++++++++++++++++----------
+ summary.md                         |  4 ++--
+ tests/unit/test_config_and_data.py |  8 ++++----
+ 10 files changed, 113 insertions(+), 78 deletions(-)
+```

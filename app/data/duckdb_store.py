@@ -108,16 +108,18 @@ _ALL_DATA_TABLES = ["kline", "tick", "financial", "f10", "factor", "basic", "rea
 class DuckDBStore:
     """Persistent storage backed by DuckDB tables, replacing ParquetManager."""
 
+    _initialized_paths: set = set()
+
     def __init__(self, db: DatabaseManager):
         self._db = db
-        self._tables_ready = False
 
     def _ensure_tables(self):
-        if self._tables_ready:
+        db_path = self._db._db_path
+        if db_path in DuckDBStore._initialized_paths:
             return
         self._db.execute(_CREATE_TABLES_SQL)
         self._db.connection.commit()
-        self._tables_ready = True
+        DuckDBStore._initialized_paths.add(db_path)
 
     @staticmethod
     def _table_for_type(data_type: str) -> str:

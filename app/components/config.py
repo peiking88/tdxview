@@ -19,25 +19,39 @@ from app.services.data_service import DataService
 # Data source helpers
 # ---------------------------------------------------------------------------
 
+_data_service_cache: Optional[DataService] = None
+_db_manager_cache: Optional[DatabaseManager] = None
+
+
+def _get_data_service() -> DataService:
+    global _data_service_cache
+    if _data_service_cache is None:
+        _data_service_cache = DataService()
+    return _data_service_cache
+
+
+def _get_db_manager() -> DatabaseManager:
+    global _db_manager_cache
+    if _db_manager_cache is None:
+        _db_manager_cache = DatabaseManager()
+    return _db_manager_cache
+
+
 def _list_sources() -> List[Dict[str, Any]]:
     """List all data sources from DB."""
-    ds = DataService()
-    return ds.list_data_sources()
+    return _get_data_service().list_data_sources()
 
 
 def _update_source(source_id: int, **kwargs) -> bool:
-    ds = DataService()
-    return ds.update_data_source(source_id, **kwargs)
+    return _get_data_service().update_data_source(source_id, **kwargs)
 
 
 def _delete_source(source_id: int) -> bool:
-    ds = DataService()
-    return ds.delete_data_source(source_id)
+    return _get_data_service().delete_data_source(source_id)
 
 
 def _check_source_health() -> Dict[str, Any]:
-    ds = DataService()
-    return ds.check_source_health()
+    return _get_data_service().check_source_health()
 
 
 # ---------------------------------------------------------------------------
@@ -145,7 +159,7 @@ def _render_storage_config():
 
     # --- Table row counts ---
     st.markdown("##### 各表数据量")
-    db = DatabaseManager()
+    db = _get_db_manager()
     table_labels = {
         "kline": "K线", "tick": "逐笔", "financial": "财务",
         "f10": "F10", "factor": "复权因子", "basic": "除权除息",
@@ -163,7 +177,7 @@ def _render_storage_config():
 
     # --- Optimize database ---
     st.markdown("##### 数据库操作")
-    if st.button("优化数据库 (CHECKPOINT)", key="optimize_db", use_container_width=True):
+    if st.button("优化数据库 (CHECKPOINT)", key="optimize_db", width='stretch'):
         try:
             db.execute("CHECKPOINT")
             db.connection.commit()
@@ -270,7 +284,7 @@ def _render_table_viewer(db: DatabaseManager):
             col_config[col] = st.column_config.NumberColumn(format="%.2f")
 
     st.caption(f"共 {len(df)} 行（最多显示 {_MAX_PREVIEW_ROWS} 行）")
-    st.dataframe(df, use_container_width=True, hide_index=True, column_config=col_config or None)
+    st.dataframe(df, width='stretch', hide_index=True, column_config=col_config or None)
 
 
 # ======================================================================
