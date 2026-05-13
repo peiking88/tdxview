@@ -137,6 +137,10 @@ def _create_mock_source():
     src.fetch_financial.return_value = pd.DataFrame({"revenue": [100]})
     src.fetch_f10.return_value = {"summary": pd.DataFrame({"item": ["EPS"], "value": [5.0]})}
     src.fetch_basic.return_value = pd.DataFrame({"name": ["Ping An Bank"]})
+    src.fetch_factor.return_value = pd.DataFrame({
+        "date": pd.date_range("2024-01-01", periods=5, freq="D"),
+        "factor": [1.02, 1.015, 1.01, 1.005, 1.0],
+    })
     src.fetch_local.return_value = pd.DataFrame({"close": [15.0]})
     src.fetch_hybrid.return_value = pd.DataFrame({"close": [15.0, 15.1]})
     src.close.return_value = None

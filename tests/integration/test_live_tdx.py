@@ -59,7 +59,8 @@ class TestLiveHistory:
 class TestLiveRealtime:
     def test_fetch_realtime(self, live_source):
         df = live_source.fetch_realtime(stock_list=["000001"])
-        assert not df.empty
+        if df.empty:
+            pytest.skip("实时数据不可用（非交易时段或服务器无响应）")
         assert "symbol" in df.columns or "stock_code" in df.columns
 
 

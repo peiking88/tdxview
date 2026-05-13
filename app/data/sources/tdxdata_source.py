@@ -7,6 +7,8 @@ This adapter delegates all data fetching to the tdxdata library while adding:
 - Parquet output support via tdxdata's storage backends
 """
 
+import logging
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -14,6 +16,8 @@ import pandas as pd
 
 from app.config.settings import get_settings
 from app.data.sources.base_source import DataSourceBase
+
+logger = logging.getLogger(__name__)
 
 
 class TdxDataSource(DataSourceBase):
@@ -146,12 +150,27 @@ class TdxDataSource(DataSourceBase):
         stock_code: Optional[str] = None,
         stock_list: Optional[List[str]] = None,
     ) -> pd.DataFrame:
-        """Fetch realtime quotes."""
+        """获取实时行情快照，空结果时自动重试一次。
+
+        通达信实时接口在非交易时段或网络抖动时可能返回空数据，
+        重试一次可排除瞬态故障；两次均空则大概率是市场关闭。
+        """
         self._ensure_api()
-        return self._api.fetch_realtime(
-            stock_code=stock_code,
-            stock_list=stock_list,
-        )
+        codes = stock_list or ([stock_code] if stock_code else [])
+        for attempt in range(2):
+            result = self._api.fetch_realtime(
+                stock_code=stock_code,
+                stock_list=stock_list,
+            )
+            if not result.empty:
+                return result
+            if attempt == 0:
+                logger.warning(
+                    "realtime 返回空数据 (codes=%s)，1s 后重试", codes
+                )
+                time.sleep(1.0)
+        logger.warning("realtime 重试后仍为空 (codes=%s)，可能非交易时段", codes)
+        return result
 
     def fetch_tick(
         self,
@@ -190,29 +209,39 @@ class TdxDataSource(DataSourceBase):
         stock_code: str,
         adjust: str = "qfq",
     ) -> pd.DataFrame:
-        """Fetch adjustment factor data (前复权/后复权因子).
+        """获取复权因子数据（前复权/后复权）。
 
-        前复权因子归一化：最新日期因子 = 1.0，确保 前复权最新价 = 原始收盘价。
+        tdxdata v0.7.0 将 fetch_factor 收为内部实现，此处通过公有 API
+        fetch_basic（XDXR 除权除息事件） + fetch_history（全量 K 线）
+        配合 tdxdata 内置的 compute_factor_from_xdzr 完成因子计算。
+
+        前复权因子归一化：最新日期因子 = 1.0，确保前复权最新价 = 原始收盘价。
         """
+        from datetime import date
+
+        from tdxdata.sources.adjust import compute_factor_from_xdxr
+
         self._ensure_api()
-        result = self._api.fetch_factor(stock_list=[stock_code], adjust=adjust)
-        if isinstance(result, dict):
-            if not result:
-                return pd.DataFrame()
-            frames = []
-            for k, df in result.items():
-                if not isinstance(df, pd.DataFrame) or df.empty:
-                    continue
-                df = df.reset_index()
-                if adjust == "qfq" and "factor" in df.columns:
-                    latest = df["factor"].iloc[-1]
-                    if latest > 0:
-                        df["factor"] = df["factor"] / latest
-                frames.append(df.assign(stock_code=k))
-            return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
-        if isinstance(result, pd.DataFrame):
-            return result
-        return pd.DataFrame()
+
+        xdxr = self._api.fetch_basic(stock_code=stock_code)
+        if xdxr is None or xdxr.empty:
+            return pd.DataFrame(columns=["date", "factor"])
+
+        kline = self._api.fetch_history(
+            stock_list=[stock_code],
+            start_date="1990-01-01",
+            end_date=date.today().isoformat(),
+            period="1d",
+            dividend_type="none",
+        )
+
+        result = compute_factor_from_xdxr(xdxr, kline, adjust)
+        if result.empty:
+            return pd.DataFrame(columns=["date", "factor"])
+
+        result = result.reset_index()
+        result.rename(columns={"index": "date"}, inplace=True)
+        return result
 
     def fetch_local(
         self,
