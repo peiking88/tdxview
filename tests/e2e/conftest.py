@@ -11,7 +11,7 @@ STREAMLIT_PORT = 8901
 BASE_URL = f"http://localhost:{STREAMLIT_PORT}"
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 
-SYSTEM_CHROMIUM = "/snap/bin/chromium"
+SYSTEM_CHROMIUM = "/snap/chromium/current/usr/lib/chromium-browser/chrome"
 
 
 def _find_chromium():
@@ -28,7 +28,10 @@ def browser_type_launch_args():
     """Override pytest-playwright's launch args to use system Chromium."""
     chromium_path = _find_chromium()
     if chromium_path:
-        return {"executable_path": chromium_path}
+        return {
+            "executable_path": chromium_path,
+            "args": ["--no-sandbox", "--disable-dev-shm-usage"],
+        }
     return {}
 
 

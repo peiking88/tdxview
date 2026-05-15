@@ -1,15 +1,11 @@
 """
-Unit tests for Phase 6 advanced features.
-Tests retention_service, backup_service, plugin_service,
-visualization enhancements, and data_service performance features.
+Unit tests for plugin_service and visualization enhancements.
 """
 
 import json
 import os
 import sys
-import tarfile
 import tempfile
-import time
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -30,180 +26,11 @@ def tmp_data(tmp_path):
 @pytest.fixture
 def mock_settings(tmp_data, test_settings):
     originals = {
-        "duckdb_path": test_settings.database.duckdb_path,
         "custom_path": test_settings.indicators.custom_path,
     }
-    test_settings.database.duckdb_path = str(tmp_data / "tdxview.db")
     test_settings.indicators.custom_path = str(tmp_data / "plugins" / "indicators")
     yield test_settings
-    test_settings.database.duckdb_path = originals["duckdb_path"]
     test_settings.indicators.custom_path = originals["custom_path"]
-
-
-# ======================================================================
-# RetentionService tests
-# ======================================================================
-
-
-class TestRetentionService:
-    def test_scan_stored_data_empty(self, mock_settings):
-        from app.services.retention_service import RetentionService
-        svc = RetentionService()
-        files = svc.scan_stored_data()
-        assert files == []
-
-    def test_scan_with_data(self, mock_settings):
-        import pandas as pd
-        from app.data.duckdb_store import DuckDBStore
-        from app.data.database import DatabaseManager
-
-        db = DatabaseManager(db_path=mock_settings.database.duckdb_path)
-        store = DuckDBStore(db)
-        df = pd.DataFrame({
-            "date": ["2024-01-02"], "open": [10.0], "high": [10.5],
-            "low": [9.8], "close": [10.3], "volume": [100000], "amount": [1000000.0],
-        })
-        store.save(df, "AAPL", data_type="history")
-
-        from app.services.retention_service import RetentionService
-        svc = RetentionService(db=db)
-        result = svc.scan_stored_data()
-        assert any(r["symbol"] == "AAPL" for r in result)
-        db.close()
-
-    def test_set_policy(self, mock_settings):
-        from app.services.retention_service import RetentionService
-        svc = RetentionService()
-        svc.set_policy(retention_days=180, archive_threshold_days=14)
-        assert svc._retention_days == 180
-        assert svc._archive_threshold_days == 14
-
-    def test_purge_old_data(self, mock_settings):
-        import pandas as pd
-        from app.data.duckdb_store import DuckDBStore
-        from app.data.database import DatabaseManager
-
-        db = DatabaseManager(db_path=mock_settings.database.duckdb_path)
-        store = DuckDBStore(db)
-        df = pd.DataFrame({
-            "date": ["2020-01-02"], "open": [10.0], "high": [10.5],
-            "low": [9.8], "close": [10.3], "volume": [100000], "amount": [1000000.0],
-        })
-        store.save(df, "OLD", data_type="history")
-
-        from app.services.retention_service import RetentionService
-        svc = RetentionService(db=db)
-        svc._retention_days = 365
-        result = svc.purge_expired_data()
-        assert result["purged_count"] >= 1
-        db.close()
-
-    def test_get_storage_stats(self, mock_settings):
-        from app.services.retention_service import RetentionService
-        svc = RetentionService()
-        stats = svc.get_storage_stats()
-        assert "data_rows" in stats
-        assert "database_bytes" in stats
-
-    def test_run_full_retention(self, mock_settings):
-        from app.services.retention_service import RetentionService
-        svc = RetentionService()
-        result = svc.run_full_retention()
-        assert "purge" in result
-        assert "log_cleanup" in result
-        assert "storage_after" in result
-        assert "timestamp" in result
-
-
-# ======================================================================
-# BackupService tests
-# ======================================================================
-
-
-class TestBackupService:
-    def test_create_backup(self, tmp_data, mock_settings):
-        db_path = tmp_data / "tdxview.db"
-        db_path.write_text("fake db content")
-        from app.services.backup_service import BackupService
-        svc = BackupService(backup_dir=str(tmp_data / "backups"))
-        meta = svc.create_backup(label="test")
-        assert "archive_path" in meta
-        assert Path(meta["archive_path"]).exists()
-        assert meta["archive_size_bytes"] > 0
-
-    def test_create_backup_with_data(self, mock_settings):
-        db_path = Path(mock_settings.database.duckdb_path)
-        db_path.parent.mkdir(parents=True, exist_ok=True)
-        db_path.write_text("fake db")
-        from app.services.backup_service import BackupService
-        svc = BackupService(backup_dir=str(Path(mock_settings.database.duckdb_path).parent / "backups"))
-        meta = svc.create_backup(label="with_data")
-        assert Path(meta["archive_path"]).exists()
-
-    def test_list_backups_empty(self, mock_settings):
-        from app.services.backup_service import BackupService
-        svc = BackupService(backup_dir=str(tempfile.mkdtemp()))
-        assert svc.list_backups() == []
-
-    def test_list_backups(self, tmp_data, mock_settings):
-        db_path = tmp_data / "tdxview.db"
-        db_path.write_text("fake db")
-        from app.services.backup_service import BackupService
-        svc = BackupService(backup_dir=str(tmp_data / "backups"))
-        svc.create_backup(label="b1")
-        svc.create_backup(label="b2")
-        backups = svc.list_backups()
-        assert len(backups) == 2
-
-    def test_delete_backup(self, tmp_data, mock_settings):
-        db_path = tmp_data / "tdxview.db"
-        db_path.write_text("fake db")
-        from app.services.backup_service import BackupService
-        svc = BackupService(backup_dir=str(tmp_data / "backups"))
-        meta = svc.create_backup(label="del_test")
-        assert svc.delete_backup(meta["archive_path"])
-        assert not Path(meta["archive_path"]).exists()
-
-    def test_prune_old_backups(self, tmp_data, mock_settings):
-        db_path = tmp_data / "tdxview.db"
-        db_path.write_text("fake db")
-        from app.services.backup_service import BackupService
-        svc = BackupService(backup_dir=str(tmp_data / "backups"))
-        for i in range(5):
-            svc.create_backup(label=f"prune_{i}")
-        result = svc.prune_old_backups(keep_count=2)
-        assert result["pruned_count"] == 3
-        assert result["kept_count"] == 2
-
-    def test_verify_backup_valid(self, tmp_data, mock_settings):
-        db_path = tmp_data / "tdxview.db"
-        db_path.write_text("fake db")
-        from app.services.backup_service import BackupService
-        svc = BackupService(backup_dir=str(tmp_data / "backups"))
-        meta = svc.create_backup()
-        result = svc.verify_backup(meta["archive_path"])
-        assert result["valid"] is True
-
-    def test_verify_backup_missing(self, mock_settings):
-        from app.services.backup_service import BackupService
-        svc = BackupService()
-        result = svc.verify_backup("/nonexistent/path.tar.gz")
-        assert result["valid"] is False
-
-    def test_restore_backup(self, tmp_data, mock_settings):
-        db_path = tmp_data / "tdxview.db"
-        db_path.write_text("original db")
-        from app.services.backup_service import BackupService
-        svc = BackupService(backup_dir=str(tmp_data / "backups"))
-        meta = svc.create_backup()
-        result = svc.restore_backup(meta["archive_path"])
-        assert result["status"] in ("ok", "partial")
-
-    def test_restore_missing_archive(self, mock_settings):
-        from app.services.backup_service import BackupService
-        svc = BackupService()
-        result = svc.restore_backup("/nonexistent.tar.gz")
-        assert result["status"] == "error"
 
 
 # ======================================================================
@@ -423,23 +250,3 @@ class TestVisualizationEnhancements:
     def test_create_gauge_chart_no_thresholds(self):
         fig = self.vs.create_gauge_chart(value=50, title="Memory")
         assert fig is not None
-
-
-# ======================================================================
-# DataService performance feature tests
-# ======================================================================
-
-
-class TestDataServicePerformance:
-    def test_get_stats(self, mock_settings):
-        from app.services.data_service import DataService
-        svc = DataService()
-        stats = svc.get_stats()
-        assert "source_connected" in stats
-        assert "tables" in stats
-
-    def test_batch_query_unknown_method(self, mock_settings):
-        from app.services.data_service import DataService
-        svc = DataService()
-        with pytest.raises(ValueError, match="Unknown method"):
-            svc.batch_query_symbols(["000001.SZ"], query_fn_name="nonexistent")

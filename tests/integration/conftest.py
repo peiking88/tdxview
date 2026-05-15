@@ -2,7 +2,6 @@
 集成测试共享fixture
 
 原则：真实环境优先于 mock
-- DuckDB 使用真实临时实例
 - 通达信服务器可用时使用真实连接，不可用时自动降级为 mock
 - get_settings 已由 tests/conftest.py autouse patch 统一管理
 - 使用方式：
@@ -11,7 +10,6 @@
     TDX_LIVE=1 pytest          # 强制真实连接
 """
 
-import json
 import sys
 import tempfile
 from pathlib import Path
@@ -32,84 +30,14 @@ def tmp_base():
 
 
 @pytest.fixture(scope="session")
-def tmp_db_path(tmp_base, test_settings):
-    db_path = str(tmp_base / "test_tdxview.db")
-    original = test_settings.database.duckdb_path
-    test_settings.database.duckdb_path = db_path
-    yield db_path
-    test_settings.database.duckdb_path = original
-
-
-@pytest.fixture(scope="session", autouse=True)
-def _init_db(tmp_db_path):
-    from app.data.database import DatabaseManager
-
-    db = DatabaseManager(db_path=tmp_db_path)
-
-    db.execute("CREATE SEQUENCE IF NOT EXISTS users_id_seq START 1")
-    db.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            id        INTEGER PRIMARY KEY DEFAULT nextval('users_id_seq'),
-            username  TEXT UNIQUE NOT NULL,
-            email     TEXT UNIQUE,
-            password_hash TEXT NOT NULL,
-            role      TEXT NOT NULL DEFAULT 'user',
-            is_active BOOLEAN NOT NULL DEFAULT TRUE,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            last_login TIMESTAMP,
-            preferences TEXT DEFAULT '{}'
-        )
-    """)
-
-    db.execute("CREATE SEQUENCE IF NOT EXISTS data_sources_id_seq START 1")
-    db.execute("""
-        CREATE TABLE IF NOT EXISTS data_sources (
-            id        INTEGER PRIMARY KEY DEFAULT nextval('data_sources_id_seq'),
-            name      TEXT NOT NULL,
-            type      TEXT NOT NULL,
-            config    TEXT NOT NULL,
-            enabled   BOOLEAN DEFAULT TRUE,
-            priority  INTEGER DEFAULT 1,
-            last_checked TIMESTAMP,
-            error_count INTEGER DEFAULT 0,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE(name, type)
-        )
-    """)
-
-    default_config = json.dumps({
-        "api_url": "https://api.tdxdata.com",
-        "api_key": "test_key",
-        "timeout": 30,
-        "retry_count": 3
-    })
-    db.execute("""
-        INSERT OR IGNORE INTO data_sources (name, type, config, enabled, priority)
-        VALUES ('tdxdata_test', 'tdxdata', ?, TRUE, 1)
-    """, [default_config])
-
-    db.connection.commit()
-    yield db
-
-
-@pytest.fixture(scope="session")
 def mock_source(tdx_source):
-    """数据源 fixture —— 可能是真实 TdxDataSource 也可能是 mock。
-
-    名称保留 mock_source 是为了向后兼容已有测试的参数名。
-    实际行为取决于 tdx_available 检测结果。
-    """
+    """数据源 fixture —— 可能是真实 TdxDataSource 也可能是 mock。"""
     return tdx_source
 
 
 @pytest.fixture(scope="session")
 def data_service(tdx_source, tdx_available):
-    """创建 DataService 实例。
-
-    - 服务器可用时：不 patch TdxDataSource，使用真实连接
-    - 服务器不可用时：patch TdxDataSource 返回 mock
-    """
+    """创建 DataService 实例。"""
     from app.services.data_service import DataService
 
     if tdx_available:
@@ -121,12 +49,6 @@ def data_service(tdx_source, tdx_available):
             svc = DataService()
         svc._source = tdx_source
         yield svc
-
-
-@pytest.fixture(scope="session")
-def us():
-    from app.services import user_service
-    return user_service
 
 
 @pytest.fixture(scope="session")
@@ -148,13 +70,3 @@ def sample_stock_df():
         "volume": np.random.randint(100_000, 1_000_000, n),
         "symbol": ["AAPL"] * n,
     })
-
-
-@pytest.fixture()
-def clean_db(tmp_db_path):
-    from app.data.database import DatabaseManager
-    db = DatabaseManager(db_path=tmp_db_path)
-    for t in ("users",):
-        db.execute(f"DELETE FROM {t}")
-    db.connection.commit()
-    yield

@@ -1,63 +1,13 @@
 """
-Unit tests for the data layer: database, TdxDataSource, DataService.
+Unit tests for the data layer: TdxDataSource, DataService.
 """
 
-import time
 import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
 import pytest
-
-from app.data.database import DatabaseManager
-
-
-# ===========================================================================
-# DatabaseManager
-# ===========================================================================
-
-class TestDatabaseManager:
-    @pytest.fixture
-    def db(self, tmp_dir):
-        db_path = str(tmp_dir / "test.db")
-        dm = DatabaseManager(db_path=db_path)
-        dm.execute("CREATE SEQUENCE IF NOT EXISTS test_id_seq START 1")
-        dm.execute("""
-            CREATE TABLE IF NOT EXISTS test_tbl (
-                id INTEGER PRIMARY KEY DEFAULT nextval('test_id_seq'),
-                name TEXT NOT NULL,
-                value INTEGER DEFAULT 0
-            )
-        """)
-        dm.connection.commit()
-        yield dm
-        dm.close()
-
-    def test_execute_and_fetch_one(self, db):
-        db.execute("INSERT INTO test_tbl (name, value) VALUES ('a', 1)")
-        db.connection.commit()
-        row = db.fetch_one("SELECT name, value FROM test_tbl WHERE name = ?", ["a"])
-        assert row == ("a", 1)
-
-    def test_fetch_all(self, db):
-        db.execute("INSERT INTO test_tbl (name, value) VALUES ('x', 10)")
-        db.execute("INSERT INTO test_tbl (name, value) VALUES ('y', 20)")
-        db.connection.commit()
-        rows = db.fetch_all("SELECT name, value FROM test_tbl ORDER BY name")
-        assert len(rows) == 2
-
-    def test_fetch_df(self, db):
-        db.execute("INSERT INTO test_tbl (name, value) VALUES ('z', 99)")
-        db.connection.commit()
-        df = db.fetch_df("SELECT * FROM test_tbl")
-        assert len(df) == 1
-
-    def test_context_manager(self, tmp_dir):
-        db_path = str(tmp_dir / "ctx_test.db")
-        with DatabaseManager(db_path=db_path) as dm:
-            dm.execute("CREATE TABLE t (id INT)")
-            dm.connection.commit()
 
 
 # ===========================================================================
@@ -157,70 +107,20 @@ class TestTdxDataSource:
 
 
 # ===========================================================================
-# DataService (mocked source + real DuckDB)
+# DataService (mocked source)
 # ===========================================================================
 
 @pytest.fixture
-def data_svc(tmp_dir, test_settings):
-    """Create a DataService with a temp database."""
+def data_svc():
+    """Create a DataService with mocked source."""
     from app.services.data_service import DataService
 
-    db_path = str(tmp_dir / "svc_test.db")
-    import duckdb
-    conn = duckdb.connect(db_path)
-    conn.execute("CREATE SEQUENCE IF NOT EXISTS data_sources_id_seq START 1")
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS data_sources (
-            id INTEGER PRIMARY KEY DEFAULT nextval('data_sources_id_seq'),
-            name TEXT NOT NULL,
-            type TEXT NOT NULL,
-            config JSON NOT NULL,
-            priority INTEGER DEFAULT 1,
-            enabled BOOLEAN DEFAULT TRUE,
-            last_checked TIMESTAMP,
-            error_count INTEGER DEFAULT 0,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-    conn.commit()
-    conn.close()
-
-    original = test_settings.database.duckdb_path
-    test_settings.database.duckdb_path = db_path
-
     svc = DataService()
+    # Replace source with mock
+    mock_source = MagicMock()
+    svc._source = mock_source
     yield svc
-
     svc.close()
-    test_settings.database.duckdb_path = original
-
-
-class TestDataServiceSourceCRUD:
-    def test_add_and_list(self, data_svc):
-        sid = data_svc.add_data_source("test_src", "tdxdata", {"api_url": "http://x"})
-        assert sid > 0
-        sources = data_svc.list_data_sources()
-        assert any(s["name"] == "test_src" for s in sources)
-
-    def test_get_source(self, data_svc):
-        sid = data_svc.add_data_source("src2", "tdxdata", {"key": "val"})
-        src = data_svc.get_data_source(sid)
-        assert src is not None
-        assert src["name"] == "src2"
-        assert src["config"]["key"] == "val"
-
-    def test_update_source(self, data_svc):
-        sid = data_svc.add_data_source("src3", "tdxdata", {})
-        data_svc.update_data_source(sid, name="renamed", enabled=False)
-        src = data_svc.get_data_source(sid)
-        assert src["name"] == "renamed"
-        assert src["enabled"] is False
-
-    def test_delete_source(self, data_svc):
-        sid = data_svc.add_data_source("del_me", "tdxdata", {})
-        data_svc.delete_data_source(sid)
-        assert data_svc.get_data_source(sid) is None
 
 
 class TestDataServiceFetch:
@@ -244,51 +144,35 @@ class TestDataServiceFetch:
             assert len(df) == 1
             assert df.iloc[0]["close"] == 1705.0
 
-    def test_get_history_stores_to_duckdb(self, data_svc):
-        mock_df = pd.DataFrame({
-            "stock_code": ["600519"],
-            "date": ["2024-01-31"],
-            "open": [1700.0], "high": [1710.0], "low": [1695.0],
-            "close": [1705.0], "volume": [10000],
-        })
-        call_count = 0
-
-        def mock_fetch(**kwargs):
-            nonlocal call_count
-            call_count += 1
-            return mock_df
-
-        with patch.object(data_svc.source, "fetch_history", side_effect=mock_fetch):
-            # 每次调用都直接调 API，不做缓存
-            df1 = data_svc.get_history(["600519"], "2024-01-01", "2024-01-31")
-            assert call_count == 1
-
-            df2 = data_svc.get_history(["600519"], "2024-01-01", "2024-01-31")
-            assert call_count == 2  # 每次都重新获取
-
     def test_get_realtime_with_mock(self, data_svc):
         mock_df = pd.DataFrame({"stock_code": ["600519"], "close": [1705.0]})
         with patch.object(data_svc.source, "fetch_realtime", return_value=mock_df):
             df = data_svc.get_realtime(["600519"], use_cache=False)
             assert len(df) == 1
 
-    def test_fetch_and_store(self, data_svc, tmp_dir):
+    def test_get_factor_with_mock(self, data_svc, tmp_path):
         mock_df = pd.DataFrame({
-            "stock_code": ["600519", "000001"],
-            "date": ["2024-01-02", "2024-01-02"],
-            "close": [1705.0, 12.5],
-            "volume": [10000, 5000],
+            "date": ["2024-01-15", "2024-01-16"],
+            "factor": [1.05, 1.0],
         })
-        with patch.object(data_svc.source, "fetch_history", return_value=mock_df):
-            results = data_svc.fetch_and_store(
-                symbols=["600519", "000001"],
-                start_date="2024-01",
-                end_date="2024-06",
-            )
-            assert len(results) == 2
+        from app.services.data_service import DataService
+        DataService._FACTOR_CACHE_PATH = tmp_path / "factors.json"
 
-    def test_check_health(self, data_svc):
-        with patch.object(data_svc.source, "validate_connection", return_value=True):
-            health = data_svc.check_source_health()
-            assert health["connected"] is True
-            assert "checked_at" in health
+        with patch.object(data_svc.source, "fetch_factor", return_value=mock_df):
+            df = data_svc.get_factor("600519", adjust="qfq", use_cache=False)
+            assert len(df) == 2
+
+    def test_get_stats(self, data_svc):
+        stats = data_svc.get_stats()
+        assert stats["source_connected"] is True
+
+    def test_close_and_context_manager(self):
+        from app.services.data_service import DataService
+
+        svc = DataService()
+        mock_source = MagicMock()
+        svc._source = mock_source
+
+        with svc as s:
+            assert s is svc
+        mock_source.close.assert_called_once()

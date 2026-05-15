@@ -233,13 +233,8 @@ install_e2e() {
 }
 
 init_database() {
-    if [ "${SKIP_DB}" = true ]; then
-        step "Skipping database initialization (--skip-db)"
-        return
-    fi
-    step "Initializing database"
-    python "${PROJECT_ROOT}/scripts/init_database.py"
-    ok "Database initialized"
+    step "Skipping database initialization (DuckDB removed)"
+    ok "No database needed"
 }
 
 create_dirs() {
@@ -260,7 +255,7 @@ verify_setup() {
     step "Verifying installation"
     local errors=0
 
-    local modules=("streamlit" "duckdb" "plotly" "pandas" "pytest")
+    local modules=("streamlit" "plotly" "pandas" "pytest")
     for mod in "${modules[@]}"; do
         if python -c "import ${mod}" 2>/dev/null; then
             local ver
@@ -280,11 +275,7 @@ verify_setup() {
         fi
     fi
 
-    if [ -f "${PROJECT_ROOT}/data/tdxview.db" ]; then
-        ok "  Database file exists"
-    else
-        warn "  Database file not found (run: python scripts/init_database.py)"
-    fi
+    ok "  No database required"
 
     echo ""
     if [ "${errors}" -gt 0 ]; then
@@ -301,11 +292,6 @@ verify_setup() {
 run_app() {
     banner "Starting tdxview Application"
     ensure_venv
-
-    if [ ! -f "${PROJECT_ROOT}/data/tdxview.db" ]; then
-        warn "Database not found, initializing..."
-        python "${PROJECT_ROOT}/scripts/init_database.py"
-    fi
 
     info "Starting Streamlit on port ${RUN_PORT}..."
     info "Press Ctrl+C to stop"
@@ -345,11 +331,6 @@ start_app() {
         warn "Application already running (PID: ${pid}, port: ${RUN_PORT})"
         info "Use 'bash scripts/setup_dev.sh restart' to restart"
         exit 0
-    fi
-
-    if [ ! -f "${PROJECT_ROOT}/data/tdxview.db" ]; then
-        warn "Database not found, initializing..."
-        python "${PROJECT_ROOT}/scripts/init_database.py"
     fi
 
     mkdir -p "${LOG_DIR}"

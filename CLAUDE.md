@@ -34,9 +34,6 @@ TDX_LIVE=1 pytest tests/ -q                           # 强制真实网络
 pytest tests/unit/test_data_service.py -v             # 单个测试文件
 pytest tests/ -k "test_get_history" -v                # 单个测试函数
 
-# 数据库初始化
-python scripts/init_database.py                       # 默认管理员: admin / admin123
-
 # 代码格式化
 black app/ tests/ --line-length 100
 isort app/ tests/ --profile black
@@ -50,12 +47,9 @@ mypy app/
 三层架构：Streamlit UI → Services → Data Layer。
 
 ```
-app/components/     Streamlit UI 页面（auth, charts, dashboard, indicators, config, data_management）
-app/services/       业务逻辑层（data_service, visualization_service, indicator_service, user_service, backup_service, retention_service, plugin_service）
+app/components/     Streamlit UI 页面（charts, indicators）
+app/services/       业务逻辑层（data_service, visualization_service, indicator_service, plugin_service）
 app/data/           数据层
-  cache.py          MemoryCache (LRU+TTL) + DiskCache + CacheManager
-  database.py       DuckDB 管理器（用户、数据源元数据）
-  parquet_manager.py Parquet 时序数据读写
   models/           Pydantic 数据模型（user, data_source, indicator）
   sources/          DataSourceBase (ABC) → TdxDataSource（通达信适配器，封装 tdxdata 本地仓库 ~/peiking88/tdxdata）
 app/config/         Pydantic Settings 配置管理，从 config.yaml + .env 加载
@@ -64,11 +58,11 @@ app/utils/          工具模块
   logging.py        Loguru 日志配置
 ```
 
-**关键数据流**：DataService 协调 CacheManager → DuckDB → ParquetManager → TdxDataSource 的查询链路，支持并行多股票获取。
+**关键数据流**：DataService 直接调用 TdxDataSource API 获取数据，返回清洗后的 DataFrame 给 UI 层。复权因子数据通过 JSON 文件本地缓存。
 
 ## 配置
 
-- `config.yaml`：主配置文件（数据库路径、缓存、TDX 数据源、安全、日志等）
+- `config.yaml`：主配置文件（TDX 数据源、日志等）
 - `app/config/settings.py`：Pydantic Settings 模型，`get_settings()` 全局单例
 - 环境变量覆盖：`APP_SECRET_KEY`, `TDXDATA_API_KEY`, `CONFIG_FILE`, `ENVIRONMENT`, `TDX_LIVE`
 
@@ -76,7 +70,7 @@ app/utils/          工具模块
 
 **双模式测试架构**（`tests/conftest.py`）：
 
-- `test_settings`（session, autouse）：创建指向临时目录的真实 Settings，自动 patch 所有 18 个应用模块的 `get_settings`
+- `test_settings`（session, autouse）：创建指向临时目录的真实 Settings，自动 patch 所有应用模块的 `get_settings`
 - `tdx_source`（session）：自动检测通达信服务器 → 可用返回真实 TdxDataSource，不可用返回 MagicMock（预设 A 股数据）
 - 环境控制：`TDX_LIVE=0`（强制 mock）、`TDX_LIVE=1`（强制真实）、默认自动检测
 

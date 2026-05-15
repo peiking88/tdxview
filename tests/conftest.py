@@ -24,16 +24,9 @@ sys.path.insert(0, str(PROJECT_ROOT))
 _SETTINGS_PATCH_TARGETS = [
     "app.config.settings.get_settings",
     "app.services.data_service.get_settings",
-    "app.services.retention_service.get_settings",
-    "app.services.backup_service.get_settings",
     "app.services.plugin_service.get_settings",
     "app.services.visualization_service.get_settings",
-    "app.services.user_service.get_settings",
-    "app.data.database.get_settings",
     "app.data.sources.tdxdata_source.get_settings",
-    "app.components.dashboard.get_settings",
-    "app.components.config.get_settings",
-    "app.components.auth.get_settings",
     "app.utils.indicators.custom.get_settings",
     "app.main.get_settings",
 ]
@@ -46,7 +39,6 @@ def test_settings(tmp_path_factory):
 
     tmp = tmp_path_factory.mktemp("tdxview_test")
     settings = Settings()
-    settings.database.duckdb_path = str(tmp / "test.duckdb")
     settings.indicators.custom_path = str(tmp / "custom_indicators")
     settings.logging.file_path = str(tmp / "log" / "test.log")
     return settings

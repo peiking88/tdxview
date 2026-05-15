@@ -9,7 +9,6 @@ pydantic-settings>=2.0.0
 # 数据处理和分析
 pandas>=2.0.0
 numpy>=1.24.0
-duckdb>=0.9.0
 
 # 数据可视化
 plotly>=5.18.0

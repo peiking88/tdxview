@@ -75,14 +75,6 @@ class TestBasicImports:
         with pytest.raises(ModuleNotFoundError):
             importlib.import_module("app.data.cache")
 
-    def test_import_database(self):
-        from app.data.database import DatabaseManager
-        assert DatabaseManager is not None
-
-    def test_import_duckdb_store(self):
-        from app.data.duckdb_store import DuckDBStore
-        assert DuckDBStore is not None
-
     def test_import_tdxdata_source(self):
         from app.data.sources.tdxdata_source import TdxDataSource
         assert TdxDataSource is not None

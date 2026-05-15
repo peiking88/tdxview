@@ -113,27 +113,11 @@ def main():
         unsafe_allow_html=True,
     )
 
-@st.cache_resource
-def _init_database_once():
-    """初始化数据库（仅首次运行，后续调用返回缓存结果）"""
-    from scripts.init_database import init_database
-    init_database()
-    return True
-
-
 def initialize_app():
     """初始化应用"""
-    # 检查必要目录
     log_dir = Path(settings.logging.file_path).parent
-
     for directory in [log_dir]:
         directory.mkdir(parents=True, exist_ok=True)
-
-    # 初始化数据库（st.cache_resource + IF NOT EXISTS 保证幂等）
-    try:
-        _init_database_once()
-    except Exception as e:
-        st.error(f"数据库初始化失败: {e}")
 
 if __name__ == "__main__":
     # 初始化应用

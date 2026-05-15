@@ -11,13 +11,6 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 import yaml
 
 
-class DatabaseConfig(BaseModel):
-    """数据库配置"""
-    duckdb_path: str = Field(default="data/tdxview.db")
-    max_connections: int = Field(default=10)
-    connection_timeout: int = Field(default=30)
-    wal_mode: bool = Field(default=True)
-
 
 class TdxDataConfig(BaseModel):
     """tdxdata配置"""
@@ -102,7 +95,7 @@ class Settings(BaseSettings):
     
     # 各模块配置
     app: AppConfig = Field(default_factory=AppConfig)
-    database: DatabaseConfig = Field(default_factory=DatabaseConfig)
+
     tdxdata: TdxDataConfig = Field(default_factory=TdxDataConfig)
     indicators: IndicatorConfig = Field(default_factory=IndicatorConfig)
     security: SecurityConfig = Field(default_factory=SecurityConfig)
@@ -181,12 +174,8 @@ def validate_config():
     for dir_path in required_dirs:
         Path(dir_path).mkdir(parents=True, exist_ok=True)
     
-    # 检查数据库文件
-    db_path = Path(settings.database.duckdb_path)
-    if not db_path.exists():
-        import warnings
-        warnings.warn(f"数据库文件不存在: {db_path}")
-    
+
+
     # 检查API密钥
     if not settings.tdxdata.api_key:
         import warnings
@@ -206,9 +195,7 @@ def get_config_summary() -> Dict[str, Any]:
             "debug": settings.app.debug,
             "environment": settings.environment
         },
-        "database": {
-            "path": settings.database.duckdb_path,
-        },
+
         "tdxdata": {
             "api_url": settings.tdxdata.api_url,
             "api_key_set": bool(settings.tdxdata.api_key)
@@ -231,7 +218,7 @@ if __name__ == "__main__":
     print(f"应用: {settings.app.name} v{settings.app.version}")
     print(f"环境: {settings.environment}")
     print(f"调试模式: {settings.app.debug}")
-    print(f"数据库: {settings.database.duckdb_path}")
+
     
     # 验证配置
     validate_config()

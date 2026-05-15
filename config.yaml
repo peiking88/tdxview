@@ -10,11 +10,6 @@ app:
   port: 8501
   workers: 1 # Streamlit工作进程数
 
-database:
-  duckdb_path: "data/tdxview.db"
-  max_connections: 10
-  connection_timeout: 30
-  wal_mode: true # 启用WAL模式提高并发性能
 
 tdxdata:
   api_url: "https://api.tdxdata.com"
@@ -164,8 +159,6 @@ development: &development
       enabled: true
       color: true
 
-  database:
-    wal_mode: false # 开发环境可禁用WAL
 
   monitoring:
     profiling:
