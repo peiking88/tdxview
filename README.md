@@ -260,3 +260,21 @@ MIT
  tests/unit/test_config_and_data.py |  8 ++++----
  10 files changed, 113 insertions(+), 78 deletions(-)
 ```
+
+### 2026-05-15 08:41:47
+```
+ app/components/charts.py              |  49 ++-------
+ app/components/indicators.py          |  22 +++-
+ app/data/sources/tdxdata_source.py    |  36 +++----
+ app/main.py                           |   5 -
+ app/services/data_service.py          |  92 ++++------------
+ app/services/visualization_service.py |  99 +++++++++++++++---
+ pyproject.toml                        |   4 +-
+ scripts/setup_dev.sh                  | 192 ++++++++++++++++++++++++++++++++--
+ summary.md                            |  23 ++--
+ tests/e2e/pages/__init__.py           |   1 -
+ tests/e2e/pages/config_page.py        |  14 ---
+ tests/e2e/test_navigation.py          |  17 ++-
+ tests/unit/test_data_layer.py         |   9 +-
+ 13 files changed, 351 insertions(+), 212 deletions(-)
+```
