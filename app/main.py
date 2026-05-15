@@ -15,7 +15,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from app.config.settings import get_settings
 from app.components.charts import chart_component
 from app.components.indicators import indicator_component
-from app.components.config import config_component
 
 # 页面配置
 st.set_page_config(
@@ -88,7 +87,6 @@ def main():
         pages = [
             ("图表\n分析", "charts"),
             ("技术\n指标", "indicators"),
-            ("系统\n管理", "config"),
         ]
         cols = st.columns(len(pages))
         for i, (label, key) in enumerate(pages):
@@ -104,9 +102,6 @@ def main():
         chart_component()
     elif st.session_state.current_page == "indicators":
         indicator_component()
-    elif st.session_state.current_page == "config":
-        config_component()
-
     # 页脚
     st.markdown("---")
     st.markdown(

@@ -9,6 +9,7 @@ import io
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
@@ -38,7 +39,7 @@ def _default_layout(**overrides: Any) -> Dict[str, Any]:
 def _volume_colors(opens: pd.Series, closes: pd.Series) -> List[str]:
     """Return per-bar colours: green if close >= open, red otherwise."""
     return [
-        "rgba(38,166,91,0.5)" if c >= o else "rgba(234,67,53,0.5)"
+        "rgba(38,166,91,0.85)" if c >= o else "rgba(234,67,53,0.85)"
         for o, c in zip(opens, closes)
     ]
 
@@ -46,6 +47,12 @@ def _volume_colors(opens: pd.Series, closes: pd.Series) -> List[str]:
 def _missing_date_rangebreaks(dates: pd.Series) -> List[Dict[str, Any]]:
     values = pd.to_datetime(dates, errors="coerce").dropna().dt.normalize().sort_values().unique()
     if len(values) < 2:
+        return []
+
+    # 非日线数据（周线/月线）数据点间隔天然 > 1 天，不做 rangebreak
+    gaps = (values[1:] - values[:-1]) / pd.Timedelta(days=1)
+    median_gap = float(np.median(gaps))
+    if median_gap > 2:
         return []
 
     observed = {pd.Timestamp(d).strftime("%Y-%m-%d") for d in values}
@@ -71,30 +78,72 @@ def create_candlestick(
     """
     ma_periods = ma_periods or []
     has_vol = show_volume and "volume" in df.columns
+    n_rows = len(df)
+
+    dense = n_rows > 100
+    show_rangeslider = dense
+    chart_height = 500
 
     if has_vol:
         fig = make_subplots(
             rows=2, cols=1, shared_xaxes=True,
-            row_heights=[0.75, 0.25],
+            row_heights=[0.72, 0.28],
             vertical_spacing=0.03,
         )
     else:
         fig = go.Figure()
 
-    x_data = df["date"] if "date" in df.columns else df.index
+    x_data = pd.to_datetime(df["date"] if "date" in df.columns else df.index)
+
+    # 检测分钟级数据
+    xaxis_opts = {}
+    minute_level = False
+    if len(x_data) > 1:
+        gap_min = float(np.median((x_data.diff().dropna() / pd.Timedelta(minutes=1)).values))
+        if gap_min <= 60:
+            minute_level = True
+            same_day = x_data.dt.normalize().nunique() == 1
+            xaxis_opts = {"tickformat": "%H:%M" if same_day else "%m/%d %H:%M"}
+
     rangebreaks = _missing_date_rangebreaks(pd.Series(x_data))
 
+    # 分钟图：隐藏非交易时段
+    if minute_level:
+        days = sorted(pd.to_datetime(x_data.dt.normalize().unique()))
+        intraday_breaks = []
+        for i, d in enumerate(days):
+            ds = d.strftime("%Y-%m-%d")
+            consecutive = i > 0 and (d - days[i - 1]).days == 1
+            # 盘前：非连续日独立遮盖；连续日已由前日盘后合并
+            if not consecutive:
+                intraday_breaks.append(dict(bounds=[f"{ds} 00:00", f"{ds} 09:30"]))
+            # 午休
+            intraday_breaks.append(dict(bounds=[f"{ds} 11:30", f"{ds} 13:00"]))
+            # 盘后
+            is_last = i == len(days) - 1
+            next_gap = (days[i + 1] - d).days if not is_last else 99
+            if next_gap > 1 or is_last:
+                intraday_breaks.append(dict(bounds=[f"{ds} 15:00", f"{ds} 23:59"]))
+            else:
+                # 连续交易日：盘后合并至次日盘前
+                next_ds = days[i + 1].strftime("%Y-%m-%d")
+                intraday_breaks.append(dict(bounds=[f"{ds} 15:00", f"{next_ds} 09:30"]))
+        rangebreaks = intraday_breaks + rangebreaks
+
+    # 分钟图按 5px/根（3px 体 + 1px 影线 + 1px 间距）计算宽度
+    figure_width = max(800, int(n_rows * 5)) if minute_level else None
+
     # --- Candlestick trace ---
-    candle = go.Candlestick(
+    candle_kw = dict(
         x=x_data,
-        open=df["open"],
-        high=df["high"],
-        low=df["low"],
-        close=df["close"],
+        open=df["open"], high=df["high"], low=df["low"], close=df["close"],
         name="K线",
-        increasing_line_color="#26a65b",
-        decreasing_line_color="#ea4335",
+        increasing_line_color="#26a65b", decreasing_line_color="#ea4335",
     )
+    if minute_level:
+        candle_kw["increasing_line_width"] = 0.6
+        candle_kw["decreasing_line_width"] = 0.6
+    candle = go.Candlestick(**candle_kw)
     if has_vol:
         fig.add_trace(candle, row=1, col=1)
     else:
@@ -171,16 +220,36 @@ def create_candlestick(
             row=2, col=1,
         )
 
-    layout_overrides = {"title": title or "K线图"}
+    layout_overrides = {"title": title or "K线图", "height": chart_height}
+    if figure_width:
+        layout_overrides["width"] = figure_width
+        layout_overrides["autosize"] = False
     if has_vol:
         fig.update_layout(**_default_layout(**layout_overrides))
-        fig.update_xaxes(rangebreaks=rangebreaks)
-        fig.update_xaxes(rangeslider_visible=False, row=1, col=1)
+        fig.update_xaxes(
+            rangeslider_visible=False, rangebreaks=rangebreaks,
+            row=1, col=1, **xaxis_opts,
+        )
+        fig.update_xaxes(
+            rangeslider_visible=show_rangeslider,
+            rangeslider_thickness=0.03,
+            rangeslider_bgcolor="#e8e8e8",
+            rangebreaks=rangebreaks,
+            row=2, col=1, **xaxis_opts,
+        )
         fig.update_yaxes(title_text="价格", row=1, col=1)
-        fig.update_yaxes(title_text="成交量", row=2, col=1)
+        fig.update_yaxes(
+            title_text="成交量", rangemode="tozero", fixedrange=minute_level,
+            row=2, col=1,
+        )
     else:
         fig.update_layout(**_default_layout(**layout_overrides))
-        fig.update_xaxes(rangeslider_visible=False, rangebreaks=rangebreaks)
+        fig.update_xaxes(
+            rangeslider_visible=show_rangeslider,
+            rangeslider_thickness=0.03,
+            rangeslider_bgcolor="#e8e8e8",
+            rangebreaks=rangebreaks, **xaxis_opts,
+        )
 
     return fig
 

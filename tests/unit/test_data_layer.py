@@ -259,13 +259,12 @@ class TestDataServiceFetch:
             return mock_df
 
         with patch.object(data_svc.source, "fetch_history", side_effect=mock_fetch):
-            # First call — fetches from source, stores to DuckDB
-            df1 = data_svc.get_history(["600519"], "2024-01-01", "2024-01-31", use_cache=True)
+            # 每次调用都直接调 API，不做缓存
+            df1 = data_svc.get_history(["600519"], "2024-01-01", "2024-01-31")
             assert call_count == 1
 
-            # Second call — stored data covers end_date, no additional fetch
-            df2 = data_svc.get_history(["600519"], "2024-01-01", "2024-01-31", use_cache=True)
-            assert call_count == 1  # no additional fetch
+            df2 = data_svc.get_history(["600519"], "2024-01-01", "2024-01-31")
+            assert call_count == 2  # 每次都重新获取
 
     def test_get_realtime_with_mock(self, data_svc):
         mock_df = pd.DataFrame({"stock_code": ["600519"], "close": [1705.0]})

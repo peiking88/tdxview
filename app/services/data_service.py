@@ -191,81 +191,27 @@ class DataService:
         end_date: str,
         period: str = "1d",
         dividend_type: str = "front",
-        use_cache: bool = True,
+        use_cache: bool = False,
     ) -> pd.DataFrame:
-        """Get historical kline data, checking DuckDB first.
-
-        If stored data doesn't cover up to end_date, fetches the missing
-        tail incrementally and merges.
-        """
-        dividend = self._map_dividend_type(dividend_type)
-        end_dt = pd.Timestamp(end_date)
-
-        # Load from DuckDB per symbol; track what needs incremental fetch
-        stored_parts = []
-        fetch_jobs: List[Tuple[str, str]] = []  # (symbol, fetch_start_date)
-
-        for symbol in symbols:
-            stored = self._store.load(
-                symbol, data_type="history", period=period,
-                dividend=dividend, start_date=start_date, end_date=end_date,
-            )
-            if stored is not None and not stored.empty:
-                stored["stock_code"] = symbol
-                stored_parts.append(stored)
-                # Check if stored data covers up to end_date
-                latest = pd.to_datetime(stored["date"]).max()
-                if latest < end_dt:
-                    next_day = (latest + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
-                    fetch_jobs.append((symbol, next_day))
+        """获取历史 K 线数据，每次直接调 tdxdata 接口。"""
+        df = self.source.fetch_history(
+            stock_list=symbols,
+            start_date=start_date,
+            end_date=end_date,
+            period=period,
+            dividend_type=dividend_type,
+        )
+        df = self._clean_kline_data(df)
+        if df.empty:
+            return df
+        if "date" in df.columns:
+            df["date"] = pd.to_datetime(df["date"])
+            if "stock_code" in df.columns:
+                df = df.drop_duplicates(subset=["stock_code", "date"], keep="last")
+                df = df.sort_values(["stock_code", "date"]).reset_index(drop=True)
             else:
-                fetch_jobs.append((symbol, start_date))
-
-        if not fetch_jobs:
-            return pd.concat(stored_parts, ignore_index=True) if stored_parts else pd.DataFrame()
-
-        # Group by fetch_start_date to batch remote calls
-        from collections import defaultdict
-        groups: Dict[str, List[str]] = defaultdict(list)
-        for sym, s in fetch_jobs:
-            groups[s].append(sym)
-
-        fetched_parts = []
-        for fetch_start, syms in groups.items():
-            df = self.source.fetch_history(
-                stock_list=syms,
-                start_date=fetch_start,
-                end_date=end_date,
-                period=period,
-                dividend_type=dividend_type,
-            )
-            df = self._clean_kline_data(df)
-
-            if not df.empty:
-                if "stock_code" in df.columns:
-                    for sym, group in df.groupby("stock_code"):
-                        self._store.save(
-                            group, str(sym), data_type="history",
-                            period=period, dividend=dividend,
-                        )
-                else:
-                    sym = syms[0] if len(syms) == 1 else "multi"
-                    self._store.save(
-                        df, sym, data_type="history",
-                        period=period, dividend=dividend,
-                    )
-                fetched_parts.append(df)
-
-        # Merge stored + fetched, deduplicate by date per symbol
-        all_parts = stored_parts + fetched_parts
-        if not all_parts:
-            return pd.DataFrame()
-        merged = pd.concat(all_parts, ignore_index=True)
-        if "date" in merged.columns and "stock_code" in merged.columns:
-            merged["date"] = pd.to_datetime(merged["date"])
-            merged = merged.drop_duplicates(subset=["stock_code", "date"], keep="last")
-            merged = merged.sort_values(["stock_code", "date"]).reset_index(drop=True)
-        return merged
+                df = df.sort_values("date").reset_index(drop=True)
+        return df
 
     # ------------------------------------------------------------------
     # Realtime quotes

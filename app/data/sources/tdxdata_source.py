@@ -91,22 +91,17 @@ class TdxDataSource(DataSourceBase):
         dividend_type: str = "front",
         **kwargs: Any,
     ) -> pd.DataFrame:
-        """Fetch historical kline data via tdxdata."""
+        """Fetch historical kline data via tdxdata.
+
+        tdxdata >=0.8.0 内置重采样，所有周期统一走 hybrid（本地+网络）。
+        """
         self._ensure_api()
-        if period in ("1d", "1m", "5m"):
-            return self._api.fetch_hybrid(
-                stock_list=symbols,
-                start_date=start_date,
-                end_date=end_date,
-                period=period,
-                tdxdir=self._tdxdir,
-                dividend_type=dividend_type,
-            )
-        return self._api.fetch_history(
+        return self._api.fetch_hybrid(
             stock_list=symbols,
             start_date=start_date,
             end_date=end_date,
             period=period,
+            tdxdir=self._tdxdir,
             dividend_type=dividend_type,
         )
 
@@ -124,25 +119,18 @@ class TdxDataSource(DataSourceBase):
         output: str = "dataframe",
         output_path: Optional[str] = None,
     ) -> pd.DataFrame:
-        """Fetch historical kline data."""
+        """Fetch historical kline data.
+
+        tdxdata >=0.8.0 内置重采样，所有周期统一走 hybrid（本地+网络）。
+        """
         self._ensure_api()
-        if period in ("1d", "1m", "5m"):
-            return self._api.fetch_hybrid(
-                stock_list=stock_list,
-                start_date=start_date,
-                end_date=end_date,
-                period=period,
-                tdxdir=self._tdxdir,
-                dividend_type=dividend_type,
-            )
-        return self._api.fetch_history(
+        return self._api.fetch_hybrid(
             stock_list=stock_list,
             start_date=start_date,
             end_date=end_date,
             period=period,
+            tdxdir=self._tdxdir,
             dividend_type=dividend_type,
-            output=output,
-            output_path=output_path,
         )
 
     def fetch_realtime(

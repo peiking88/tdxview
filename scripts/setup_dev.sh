@@ -5,7 +5,12 @@
 #
 # Commands:
 #   setup     Install dependencies & configure environment (default)
-#   run       Start the Streamlit application
+#   run       Start the Streamlit application (foreground)
+#   start     Start the Streamlit application in background
+#   stop      Stop the background Streamlit application
+#   status    Check application running status
+#   restart   Restart the background application
+#   logs      Tail application logs
 #   test      Run unit & integration tests
 #   e2e       Run E2E UI tests (Playwright)
 #   all       Setup + Run application
@@ -18,6 +23,8 @@ VENV_DIR="${PROJECT_ROOT}/.venv"
 LOG_DIR="${PROJECT_ROOT}/log"
 APP_LOG="${LOG_DIR}/setup_dev.log"
 APP_PORT=8501
+PID_FILE="${PROJECT_ROOT}/log/tdxview.pid"
+STREAMLIT_LOG="${LOG_DIR}/streamlit.log"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -67,7 +74,12 @@ Usage: bash scripts/setup_dev.sh <command> [options]
 
 Commands:
   setup     Install dependencies & initialize environment (default)
-  run       Start the Streamlit application
+  run       Start the Streamlit application (foreground)
+  start     Start the Streamlit application in background
+  stop      Stop the background Streamlit application
+  status    Check application running status
+  restart   Restart the background application
+  logs      Tail application logs (Ctrl+C to exit)
   test      Run unit & integration tests
   e2e       Run E2E UI tests (Playwright)
   all       Full setup then start application
@@ -79,10 +91,18 @@ Options (for setup/all):
   --skip-db          Skip database initialization
   --verbose          Show detailed pip output
 
+Options (for run/start/all):
+  --port PORT        Specify application port (default: 8501)
+
 Examples:
   bash scripts/setup_dev.sh setup                   # Full environment setup
   bash scripts/setup_dev.sh run                     # Start app on port 8501
-  bash scripts/setup_dev.sh run --port 9000         # Start app on custom port
+  bash scripts/setup_dev.sh start                   # Start app in background
+  bash scripts/setup_dev.sh start --port 9000       # Start on custom port
+  bash scripts/setup_dev.sh stop                    # Stop background app
+  bash scripts/setup_dev.sh status                  # Check running status
+  bash scripts/setup_dev.sh restart                 # Restart background app
+  bash scripts/setup_dev.sh logs                    # Tail application logs
   bash scripts/setup_dev.sh test                    # Run unit + integration tests
   bash scripts/setup_dev.sh test -- -k "test_data"  # Pass extra pytest args
   bash scripts/setup_dev.sh e2e                     # Run E2E UI tests
@@ -94,7 +114,7 @@ EOF
 
 if [ $# -gt 0 ]; then
     case "$1" in
-        setup|run|test|e2e|all) COMMAND="$1"; shift ;;
+        setup|run|start|stop|status|restart|logs|test|e2e|all) COMMAND="$1"; shift ;;
         help|--help|-h)         usage ;;
     esac
 fi
@@ -299,6 +319,153 @@ run_app() {
 }
 
 # ============================================================
+# Background Process Management
+# ============================================================
+
+is_running() {
+    if [ -f "${PID_FILE}" ]; then
+        local pid
+        pid=$(cat "${PID_FILE}")
+        if kill -0 "${pid}" 2>/dev/null; then
+            return 0
+        fi
+        # 进程不存在，清理过期 PID 文件
+        rm -f "${PID_FILE}"
+    fi
+    return 1
+}
+
+start_app() {
+    banner "Starting tdxview (background)"
+    ensure_venv
+
+    if is_running; then
+        local pid
+        pid=$(cat "${PID_FILE}")
+        warn "Application already running (PID: ${pid}, port: ${RUN_PORT})"
+        info "Use 'bash scripts/setup_dev.sh restart' to restart"
+        exit 0
+    fi
+
+    if [ ! -f "${PROJECT_ROOT}/data/tdxview.db" ]; then
+        warn "Database not found, initializing..."
+        python "${PROJECT_ROOT}/scripts/init_database.py"
+    fi
+
+    mkdir -p "${LOG_DIR}"
+
+    info "Starting Streamlit on port ${RUN_PORT}..."
+    nohup streamlit run app/main.py \
+        --server.port "${RUN_PORT}" \
+        --server.address "0.0.0.0" \
+        --server.headless true \
+        --browser.gatherUsageStats false \
+        > "${STREAMLIT_LOG}" 2>&1 &
+    echo $! > "${PID_FILE}"
+
+    # 等待启动并验证
+    local retries=0
+    local max_retries=10
+    while [ ${retries} -lt ${max_retries} ]; do
+        sleep 1
+        if is_running; then
+            # 检查端口是否已就绪
+            if curl -s -o /dev/null "http://localhost:${RUN_PORT}/_stcore/health" 2>/dev/null; then
+                local pid
+                pid=$(cat "${PID_FILE}")
+                ok "Application started (PID: ${pid})"
+                info "URL: http://localhost:${RUN_PORT}"
+                info "Log: ${STREAMLIT_LOG}"
+                info ""
+                info "Commands:"
+                info "  bash scripts/setup_dev.sh status   # 查看状态"
+                info "  bash scripts/setup_dev.sh logs      # 查看日志"
+                info "  bash scripts/setup_dev.sh stop      # 停止应用"
+                exit 0
+            fi
+        else
+            fail "Application failed to start. Check log: ${STREAMLIT_LOG}"
+            exit 1
+        fi
+        retries=$((retries + 1))
+    done
+
+    # 超时但进程还在，可能健康检查路径不同
+    if is_running; then
+        local pid
+        pid=$(cat "${PID_FILE}")
+        ok "Application started (PID: ${pid})"
+        info "URL: http://localhost:${RUN_PORT}"
+        info "Log: ${STREAMLIT_LOG}"
+    else
+        fail "Application failed to start. Check log: ${STREAMLIT_LOG}"
+        exit 1
+    fi
+}
+
+stop_app() {
+    banner "Stopping tdxview"
+    if ! is_running; then
+        info "Application is not running"
+        exit 0
+    fi
+
+    local pid
+    pid=$(cat "${PID_FILE}")
+    info "Stopping process ${pid}..."
+    kill "${pid}" 2>/dev/null
+
+    # 等待进程退出
+    local retries=0
+    while kill -0 "${pid}" 2>/dev/null && [ ${retries} -lt 15 ]; do
+        sleep 1
+        retries=$((retries + 1))
+    done
+
+    if kill -0 "${pid}" 2>/dev/null; then
+        warn "Process did not exit gracefully, force killing..."
+        kill -9 "${pid}" 2>/dev/null
+    fi
+
+    rm -f "${PID_FILE}"
+    ok "Application stopped"
+}
+
+status_app() {
+    banner "tdxview Status"
+    if is_running; then
+        local pid
+        pid=$(cat "${PID_FILE}")
+        ok "Application is running"
+        info "  PID:  ${pid}"
+        info "  Port: ${RUN_PORT}"
+        info "  URL:  http://localhost:${RUN_PORT}"
+        info "  Log:  ${STREAMLIT_LOG}"
+    else
+        info "Application is not running"
+    fi
+}
+
+restart_app() {
+    if is_running; then
+        stop_app
+        echo ""
+    fi
+    start_app
+}
+
+tail_logs() {
+    if [ ! -f "${STREAMLIT_LOG}" ]; then
+        info "No log file found at ${STREAMLIT_LOG}"
+        info "Start the application first: bash scripts/setup_dev.sh start"
+        exit 0
+    fi
+    info "Tailing ${STREAMLIT_LOG} (Ctrl+C to exit)"
+    echo ""
+    tail -f "${STREAMLIT_LOG}"
+}
+
+# ============================================================
 # Test Functions
 # ============================================================
 
@@ -370,10 +537,15 @@ do_all() {
 }
 
 case "${COMMAND}" in
-    setup) do_setup ;;
-    run)   run_app ;;
-    test)  run_tests ;;
-    e2e)   run_e2e ;;
-    all)   do_all ;;
-    *)     usage ;;
+    setup)   do_setup ;;
+    run)     run_app ;;
+    start)   start_app ;;
+    stop)    stop_app ;;
+    status)  status_app ;;
+    restart) restart_app ;;
+    logs)    tail_logs ;;
+    test)    run_tests ;;
+    e2e)     run_e2e ;;
+    all)     do_all ;;
+    *)       usage ;;
 esac

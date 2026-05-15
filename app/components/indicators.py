@@ -52,6 +52,13 @@ def indicator_component():
         with col2:
             ind_end = st.date_input("结束日期", value=pd.Timestamp.now().date(), key="ind_end")
 
+        period = st.selectbox(
+            "K线周期",
+            options=["1d", "1w", "1mon", "1m", "5m", "15m", "30m", "1h"],
+            index=0,
+            key="ind_period",
+        )
+
         all_indicators = svc.list_indicators()
         categories = sorted(set(ind["category"] for ind in all_indicators))
         selected_category = st.selectbox("指标类别", ["全部"] + categories)
@@ -101,6 +108,11 @@ def indicator_component():
         st.session_state.indicator_df = None
         st.session_state.indicator_overlay = overlay_enabled
 
+    if st.session_state.get("indicator_period") != period:
+        st.session_state.indicator_result = None
+        st.session_state.indicator_df = None
+        st.session_state.indicator_period = period
+
     info = svc.get_indicator_info(indicator_key)
     if info:
         st.subheader(f"{info['display_name']}")
@@ -116,7 +128,7 @@ def indicator_component():
                         symbols=[symbol],
                         start_date=str(ind_start),
                         end_date=str(ind_end),
-                        period="1d",
+                        period=period,
                         dividend_type="front",
                     )
                     data_svc.close()
@@ -220,7 +232,9 @@ def _render_overlay_chart(df, indicator_key, symbol, display_name, results, para
     elif indicator_key == "vwap":
         _add_vwap_overlay(fig, results, x)
 
-    st.plotly_chart(fig, width='stretch')
+    fig_w = fig.layout.width
+    use_container = not (fig_w and fig.layout.autosize == False)
+    st.plotly_chart(fig, use_container_width=use_container)
 
 
 def _render_separate_chart(df, indicator_key, symbol, display_name, results):
@@ -267,7 +281,9 @@ def _render_separate_chart(df, indicator_key, symbol, display_name, results):
     )
     fig.update_xaxes(rangeslider_visible=False, row=1, col=1)
 
-    st.plotly_chart(fig, width='stretch')
+    fig_w = fig.layout.width
+    use_container = not (fig_w and fig.layout.autosize == False)
+    st.plotly_chart(fig, use_container_width=use_container)
 
 
 # ---------------------------------------------------------------------------

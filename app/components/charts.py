@@ -17,7 +17,6 @@ from app.services.visualization_service import (
     create_heatmap,
     prepare_kline_data,
     prepare_correlation_matrix,
-    export_figure_to_file,
 )
 
 COLUMN_ORDER = ["code", "name", "open", "high", "low", "close", "volume", "amount", "date"]
@@ -143,8 +142,10 @@ def _render_factor_panel(svc: DataService, symbol: str):
 
 
 def chart_component():
-    st.header("图表分析")
-
+    st.markdown(
+        "<style>.block-container { padding-top: 3rem; }</style>",
+        unsafe_allow_html=True,
+    )
     if "data_service" not in st.session_state:
         st.session_state.data_service = DataService()
     svc: DataService = st.session_state.data_service
@@ -187,17 +188,6 @@ def chart_component():
             index=0,
         )
 
-        ma_periods = []
-        bollinger_enabled = False
-        if chart_type == "K线图":
-            ma_checked = st.multiselect(
-                "均线叠加",
-                options=[5, 10, 20, 30, 60, 120, 250],
-                default=[5, 20],
-            )
-            ma_periods = ma_checked
-            bollinger_enabled = st.checkbox("布林带叠加", value=False)
-
         fetch_btn = st.button("获取数据", width='stretch', type="primary")
 
     chart_type_map = {
@@ -219,7 +209,6 @@ def chart_component():
                         end_date=str(end_date),
                         period=period,
                         dividend_type=dividend_type,
-                        use_cache=True,
                     )
                     if df.empty:
                         st.session_state.chart_df = None
@@ -228,16 +217,12 @@ def chart_component():
                         return
                     st.session_state.chart_df = df
                     st.session_state.chart_symbol = symbol
-                    st.session_state.chart_ma_periods = ma_periods
-                    st.session_state.chart_bollinger = bollinger_enabled
                 except Exception as e:
                     st.error(f"数据获取失败: {e}")
                     return
 
         df: pd.DataFrame = st.session_state.get("chart_df")
         sym = st.session_state.get("chart_symbol", symbol)
-        ma_periods = st.session_state.get("chart_ma_periods", ma_periods)
-        bollinger_enabled = st.session_state.get("chart_bollinger", bollinger_enabled)
 
         if df is None or df.empty:
             st.info("请在左侧设置参数并点击「获取数据」。")
@@ -249,29 +234,11 @@ def chart_component():
         tabs = st.tabs([chart_type])
 
         with tabs[0]:
-            fig = _render_chart(df, selected_type, sym, ma_periods, bollinger_enabled)
+            fig = _render_chart(df, selected_type, sym, [], False)
             if fig is not None:
-                st.plotly_chart(fig, width='stretch')
-
-                col1, col2 = st.columns(2)
-                with col1:
-                    if st.button("导出 PNG", key="export_png"):
-                        try:
-                            path = export_figure_to_file(
-                                fig, f"log/{sym}_{selected_type}.png", format="png"
-                            )
-                            st.success(f"已导出: {path}")
-                        except Exception as e:
-                            st.error(f"导出失败: {e}")
-                with col2:
-                    if st.button("导出 PDF", key="export_pdf"):
-                        try:
-                            path = export_figure_to_file(
-                                fig, f"log/{sym}_{selected_type}.pdf", format="pdf"
-                            )
-                            st.success(f"已导出: {path}")
-                        except Exception as e:
-                            st.error(f"导出失败: {e}")
+                fig_w = fig.layout.width
+                use_container = not (fig_w and fig.layout.autosize == False)
+                st.plotly_chart(fig, use_container_width=use_container)
 
         # 数据预览
         with st.expander("数据预览"):
