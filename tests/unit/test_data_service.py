@@ -124,9 +124,9 @@ class TestGetStats:
 class TestDataCleaning:
     def test_clean_removes_extreme_volume_among_normal(self):
         from app.services.data_service import DataService
-        # Median of [1000, 1000, 1e15] is 1000, so 1e15 is removed
+        # 成交量异常值在中间行应被过滤；最后一行保留（可能是不完整 bar）
         df = pd.DataFrame({
-            "volume": [1000, 1000, 1e15],
+            "volume": [1000, 1e15, 1000],
             "open": [10.0] * 3, "high": [11.0] * 3,
             "low": [9.0] * 3, "close": [10.5] * 3,
         })
@@ -160,14 +160,17 @@ class TestDataCleaning:
 
     def test_multi_symbol_cleaning(self):
         from app.services.data_service import DataService
+        # 每组最后一行不受成交量/价格过滤（可能为不完整 bar）
         df = pd.DataFrame({
             "stock_code": ["000001", "000001", "600519"],
             "volume": [1000, 0, 1000],
-            "open": [10.0, 10.0, 10.0], "high": [11.0, 11.0, 11.0],
-            "low": [9.0, 9.0, 9.0], "close": [10.5, 10.5, 10.5],
+            "open": [10.0, 0, 10.0], "high": [11.0, 0, 11.0],
+            "low": [9.0, 0, 9.0], "close": [10.5, 0, 10.5],
         })
         result = DataService._clean_kline_data(df)
-        assert len(result) == 2
+        # 000001: [1000(ok), 0(最后一行，跳过过滤)] → 2行
+        # 600519: [1000(ok, 仅一行)] → 1行
+        assert len(result) == 3
 
 
 class TestDataContinuity:

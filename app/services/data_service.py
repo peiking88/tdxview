@@ -68,11 +68,13 @@ class DataService:
 
         mask = pd.Series(True, index=df.index)
 
+        # Volume / price range filters skip the last row: it may be an
+        # incomplete bar during live trading (zero volume / zero prices).
         if "volume" in df.columns:
             vol = pd.to_numeric(df["volume"], errors="coerce")
             median_vol = vol[vol > 0].median()
             if pd.notna(median_vol) and median_vol > 0:
-                mask &= (vol >= median_vol * 0.1) & (vol <= median_vol * 10)
+                mask.iloc[:-1] &= (vol.iloc[:-1] >= median_vol * 0.1) & (vol.iloc[:-1] <= median_vol * 10)
 
         price_vals = []
         for col in ("open", "high", "low", "close"):
@@ -87,8 +89,9 @@ class DataService:
                 for col in ("open", "high", "low", "close"):
                     if col in df.columns:
                         vals = pd.to_numeric(df[col], errors="coerce")
-                        mask &= ((vals >= lo) & (vals <= hi)) | vals.isna()
+                        mask.iloc[:-1] &= ((vals.iloc[:-1] >= lo) & (vals.iloc[:-1] <= hi)) | vals.iloc[:-1].isna()
 
+        # High >= Low integrity check applies to ALL rows.
         if "high" in df.columns and "low" in df.columns:
             high = pd.to_numeric(df["high"], errors="coerce")
             low = pd.to_numeric(df["low"], errors="coerce")
@@ -153,6 +156,11 @@ class DataService:
     # Historical kline
     # ------------------------------------------------------------------
 
+    _MINUTE_PERIODS = {"1m", "5m", "15m", "30m", "1h"}
+    # TDX 直取周期的 bar 时间标签为区间起始时刻，需偏移到结束时刻
+    # 与 pandas resample 周期（15m/30m/1h）保持一致
+    _BAR_OFFSET = {"1m": pd.Timedelta(minutes=1), "5m": pd.Timedelta(minutes=5)}
+
     def get_history(
         self,
         symbols: List[str],
@@ -163,18 +171,37 @@ class DataService:
         use_cache: bool = False,
     ) -> pd.DataFrame:
         """获取历史 K 线数据。"""
+        # 分钟级 period 的 end_date 需扩展到当日末尾，避免 tdxdata
+        # 用 pd.Timestamp(end_date) 生成 00:00:00 截断盘中数据
+        fetch_end = end_date
+        if period in self._MINUTE_PERIODS and len(end_date) == 10:
+            fetch_end = f"{end_date} 23:59:59"
+
         df = self.source.fetch_history(
             stock_list=symbols,
             start_date=start_date,
-            end_date=end_date,
+            end_date=fetch_end,
             period=period,
             dividend_type=dividend_type,
         )
         df = self._clean_kline_data(df)
         if df.empty:
             return df
+        # 统一列名：1m/5m 直取数据含 year/month/day/hour/minute/datetime 冗余列
+        drop_cols = {"year", "month", "day", "hour", "minute", "datetime"} & set(df.columns)
+        if drop_cols:
+            df = df.drop(columns=list(drop_cols))
         if "date" in df.columns:
             df["date"] = pd.to_datetime(df["date"])
+            # 1m/5m 直取数据：TDX 标记区间起始时刻，统一偏移到结束时刻
+            offset = self._BAR_OFFSET.get(period)
+            if offset is not None:
+                df["date"] = df["date"] + offset
+            # 过滤掉 TDX 服务器预生成的未来 bar（如午休时返回的 13:00 5m bar）
+            now = pd.Timestamp.now()
+            future_mask = df["date"] > now
+            if future_mask.any():
+                df = df[~future_mask].reset_index(drop=True)
             if "stock_code" in df.columns:
                 df = df.drop_duplicates(subset=["stock_code", "date"], keep="last")
                 df = df.sort_values(["stock_code", "date"]).reset_index(drop=True)

@@ -108,6 +108,8 @@ def create_candlestick(
     rangebreaks = _missing_date_rangebreaks(pd.Series(x_data))
 
     # 分钟图：隐藏非交易时段
+    # 注：A 股 bar 时间标签为收盘时刻（如 11:30 bar 覆盖 11:25-11:30），
+    # rangebreak 的起始时刻须偏移到 bar 之后，否则会遮盖该笔数据。
     if minute_level:
         days = sorted(pd.to_datetime(x_data.dt.normalize().unique()))
         intraday_breaks = []
@@ -117,17 +119,17 @@ def create_candlestick(
             # 盘前：非连续日独立遮盖；连续日已由前日盘后合并
             if not consecutive:
                 intraday_breaks.append(dict(bounds=[f"{ds} 00:00", f"{ds} 09:30"]))
-            # 午休
-            intraday_breaks.append(dict(bounds=[f"{ds} 11:30", f"{ds} 13:00"]))
-            # 盘后
+            # 午休：从 11:30:01 开始，保留 11:30 收盘 bar
+            intraday_breaks.append(dict(bounds=[f"{ds} 11:30:01", f"{ds} 13:00"]))
+            # 盘后：从 15:00:01 开始，保留 15:00 收盘 bar
             is_last = i == len(days) - 1
             next_gap = (days[i + 1] - d).days if not is_last else 99
             if next_gap > 1 or is_last:
-                intraday_breaks.append(dict(bounds=[f"{ds} 15:00", f"{ds} 23:59"]))
+                intraday_breaks.append(dict(bounds=[f"{ds} 15:00:01", f"{ds} 23:59"]))
             else:
                 # 连续交易日：盘后合并至次日盘前
                 next_ds = days[i + 1].strftime("%Y-%m-%d")
-                intraday_breaks.append(dict(bounds=[f"{ds} 15:00", f"{next_ds} 09:30"]))
+                intraday_breaks.append(dict(bounds=[f"{ds} 15:00:01", f"{next_ds} 09:30"]))
         rangebreaks = intraday_breaks + rangebreaks
 
     # 分钟图按 5px/根（3px 体 + 1px 影线 + 1px 间距）计算宽度
