@@ -278,3 +278,28 @@ MIT
  tests/unit/test_data_layer.py         |   9 +-
  13 files changed, 351 insertions(+), 212 deletions(-)
 ```
+
+### 2026-05-20
+```
+ pyproject.toml | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+```
+
+### 2026-05-16 00:18:22
+```
+ CLAUDE.md                                    |  16 +-
+ app/components/auth.py                       | 112 ----
+ app/components/config.py                     | 398 --------------
+ app/components/dashboard.py                  | 351 ------------
+ app/config/settings.py                       |  23 +-
+ app/data/database.py                         |  50 --
+ app/data/duckdb_store.py                     | 550 -------------------
+ app/main.py                                  |  16 -
+ app/services/backup_service.py               | 176 ------
+ app/services/data_service.py                 | 791 +++------------------------
+ app/services/retention_service.py            | 174 ------
+ app/services/user_service.py                 | 353 ------------
+ config.yaml                                  |   7 -
+ pyproject.toml                               |   2 +-
+ requirements.txt                             |   1 -
+```
