@@ -42,6 +42,25 @@ isort app/ tests/ --profile black
 mypy app/
 ```
 
+## Code search and exploration
+
+Use `semble_rs` instead of `ls -R`, `grep`, `cat`:
+
+​```bash
+semble_rs tree . --symbols                         # codebase map (cheap)
+semble_rs search "<feature or symbol>" . --outline # pass 1
+semble_rs search "<feature or symbol>" . --compact # pass 2
+semble_rs deps   <file> .                          # what file imports / defines
+semble_rs impact <file> .                          # files affected by changes
+​```
+
+Compress noisy command output before reading it:
+
+​```bash
+cargo build 2>&1 | semble_rs digest
+pnpm install 2>&1 | semble_rs digest
+gh run view <id> --log-failed | semble_rs digest
+​```
 ## 架构
 
 三层架构：Streamlit UI → Services → Data Layer。
@@ -112,3 +131,5 @@ app/utils/          工具模块
 
 ### 目标用户
 个人 A 股投资者，日常看盘与决策辅助。参考 TradingView 暗色风格。
+
+

@@ -95,12 +95,12 @@ def create_candlestick(
 
     x_data = pd.to_datetime(df["date"] if "date" in df.columns else df.index)
 
-    # 检测分钟级数据
+    # 检测分钟/小时级数据：时间戳含非零时分即为盘中数据
     xaxis_opts = {}
     minute_level = False
-    if len(x_data) > 1:
-        gap_min = float(np.median((x_data.diff().dropna() / pd.Timedelta(minutes=1)).values))
-        if gap_min <= 60:
+    if len(x_data) > 0:
+        has_time = (x_data.dt.hour != 0) | (x_data.dt.minute != 0)
+        if has_time.any():
             minute_level = True
             same_day = x_data.dt.normalize().nunique() == 1
             xaxis_opts = {"tickformat": "%H:%M" if same_day else "%m/%d %H:%M"}

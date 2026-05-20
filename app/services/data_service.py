@@ -156,10 +156,8 @@ class DataService:
     # Historical kline
     # ------------------------------------------------------------------
 
+    _DAY_PERIODS = {"1d", "1w", "1mon"}
     _MINUTE_PERIODS = {"1m", "5m", "15m", "30m", "1h"}
-    # TDX 直取周期的 bar 时间标签为区间起始时刻，需偏移到结束时刻
-    # 与 pandas resample 周期（15m/30m/1h）保持一致
-    _BAR_OFFSET = {"1m": pd.Timedelta(minutes=1), "5m": pd.Timedelta(minutes=5)}
 
     def get_history(
         self,
@@ -187,21 +185,31 @@ class DataService:
         df = self._clean_kline_data(df)
         if df.empty:
             return df
-        # 统一列名：1m/5m 直取数据含 year/month/day/hour/minute/datetime 冗余列
-        drop_cols = {"year", "month", "day", "hour", "minute", "datetime"} & set(df.columns)
+        # 统一列名：清除 tdxdata/mootdx 返回的冗余列
+        _drop_cols = {"year", "month", "day", "hour", "minute", "datetime", "code"}
+        drop_cols = _drop_cols & set(df.columns)
         if drop_cols:
             df = df.drop(columns=list(drop_cols))
         if "date" in df.columns:
             df["date"] = pd.to_datetime(df["date"])
-            # 1m/5m 直取数据：TDX 标记区间起始时刻，统一偏移到结束时刻
-            offset = self._BAR_OFFSET.get(period)
-            if offset is not None:
-                df["date"] = df["date"] + offset
-            # 过滤掉 TDX 服务器预生成的未来 bar（如午休时返回的 13:00 5m bar）
+            # 过滤未来 bar：盘中当前未完成 bar 的结束时间在未来，容差一个周期
             now = pd.Timestamp.now()
-            future_mask = df["date"] > now
+            if period in self._MINUTE_PERIODS:
+                period_map = {"1m": 1, "5m": 5, "15m": 15, "30m": 30, "1h": 60}
+                tolerance = pd.Timedelta(minutes=period_map.get(period, 0))
+            else:
+                tolerance = pd.Timedelta(0)
+            future_mask = df["date"] > now + tolerance
             if future_mask.any():
                 df = df[~future_mask].reset_index(drop=True)
+            # 日/周/月线：TDX 不返回盘中当日 bar，用实时行情构造追加
+            if period in self._DAY_PERIODS and not df.empty:
+                df = self._append_realtime_day_bar(df, period, now)
+            # 成交量统一为股：日线单位为手（×100），分钟线已是股
+            if "volume" in df.columns:
+                if period in self._DAY_PERIODS:
+                    df["volume"] = df["volume"] * 100
+                df["volume"] = df["volume"].round().astype("Int64")
             if "stock_code" in df.columns:
                 df = df.drop_duplicates(subset=["stock_code", "date"], keep="last")
                 df = df.sort_values(["stock_code", "date"]).reset_index(drop=True)
@@ -224,6 +232,96 @@ class DataService:
         if not df.empty:
             df = df.loc[:, ~df.columns.duplicated()]
         return df
+
+    def _append_realtime_day_bar(
+        self, df: pd.DataFrame, period: str, now: pd.Timestamp
+    ) -> pd.DataFrame:
+        """盘中用实时行情构造当日 bar，追加到日线/周线/月线末尾。
+
+        日线：直接用实时行情的 OHLCV。
+        周线/月线：OHLC 从日线历史 + 实时行情聚合，volume 累加本周期内所有日量。
+        """
+        if "stock_code" not in df.columns:
+            return df
+        codes = df["stock_code"].unique().tolist()
+        rt = self.get_realtime(stock_list=codes)
+        if rt.empty or "stock_code" not in rt.columns:
+            return df
+
+        rt_index = {row["stock_code"]: row for _, row in rt.iterrows()}
+        today = now.normalize()
+        new_rows = []
+        for code in codes:
+            subset = df[df["stock_code"] == code]
+            if not subset.empty and subset["date"].iloc[-1] >= today:
+                continue
+            rt_row = rt_index.get(code)
+            if rt_row is None:
+                continue
+            rt_close = pd.to_numeric(rt_row.get("close"), errors="coerce")
+            if pd.isna(rt_close):
+                continue
+
+            rt_open = pd.to_numeric(rt_row.get("open"), errors="coerce")
+            rt_high = pd.to_numeric(rt_row.get("high"), errors="coerce")
+            rt_low = pd.to_numeric(rt_row.get("low"), errors="coerce")
+            rt_vol = pd.to_numeric(rt_row.get("volume"), errors="coerce")
+            rt_amt = pd.to_numeric(rt_row.get("amount"), errors="coerce")
+
+            if period == "1d":
+                row = {
+                    "stock_code": code, "date": today,
+                    "open": rt_open, "high": rt_high,
+                    "low": rt_low, "close": rt_close,
+                    "volume": rt_vol, "amount": rt_amt,
+                }
+            else:
+                # 周/月线：从日线原始数据累加本周期内成交量
+                period_start = self._period_start(period, today)
+                day_df = self.source.fetch_history(
+                    stock_list=[code],
+                    start_date=period_start.strftime("%Y-%m-%d"),
+                    end_date=today.strftime("%Y-%m-%d"),
+                    period="1d",
+                    dividend_type="none",
+                )
+                if "date" in day_df.columns:
+                    day_df["date"] = pd.to_datetime(day_df["date"])
+                    day_df = day_df[day_df["date"] < today]
+
+                opens = list(pd.to_numeric(day_df["open"], errors="coerce").dropna()) if not day_df.empty else []
+                highs = list(pd.to_numeric(day_df["high"], errors="coerce").dropna()) if not day_df.empty else []
+                lows = list(pd.to_numeric(day_df["low"], errors="coerce").dropna()) if not day_df.empty else []
+                vols = list(pd.to_numeric(day_df["volume"], errors="coerce").dropna()) if not day_df.empty else []
+                amts = list(pd.to_numeric(day_df["amount"], errors="coerce").dropna()) if not day_df.empty else []
+
+                all_opens = opens + ([rt_open] if pd.notna(rt_open) else [])
+                all_highs = highs + ([rt_high] if pd.notna(rt_high) else [])
+                all_lows = lows + ([rt_low] if pd.notna(rt_low) else [])
+
+                row = {
+                    "stock_code": code, "date": today,
+                    "open": all_opens[0] if all_opens else rt_open,
+                    "high": max(all_highs) if all_highs else rt_high,
+                    "low": min(all_lows) if all_lows else rt_low,
+                    "close": rt_close,
+                    "volume": sum(vols) + (rt_vol if pd.notna(rt_vol) else 0),
+                    "amount": sum(amts) + (rt_amt if pd.notna(rt_amt) else 0),
+                }
+            new_rows.append(row)
+
+        if new_rows:
+            df = pd.concat([df, pd.DataFrame(new_rows)], ignore_index=True)
+        return df
+
+    @staticmethod
+    def _period_start(period: str, today: pd.Timestamp) -> pd.Timestamp:
+        """返回周/月线的周期起始日期。"""
+        if period == "1w":
+            return today - pd.Timedelta(days=today.weekday())
+        if period == "1mon":
+            return today.replace(day=1)
+        return today
 
     # ------------------------------------------------------------------
     # Factor data (复权因子)
